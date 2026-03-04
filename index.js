@@ -8,9 +8,15 @@ const { rollback } = require('./rollback');
 const { streamLogs } = require('./log-streamer');
 const { handleTerminal } = require('./terminal');
 const { issueSsl } = require('./ssl');
+const { startMetrics } = require('./metrics');
+const { handleFileManager } = require('./filemanager');
+const { handleServices } = require('./services');
+const { handleExec } = require('./exec');
+
 
 const CONTROL_PLANE_URL = process.env.CONTROL_PLANE_URL || 'http://localhost:3001';
 const AGENT_TOKEN = process.env.AGENT_TOKEN;
+const METRICS_INTERVAL = parseInt(process.env.METRICS_INTERVAL || '10000', 10);
 
 if (!AGENT_TOKEN) {
     console.error('❌ AGENT_TOKEN environment variable is required');
@@ -24,12 +30,21 @@ const socket = io(`${CONTROL_PLANE_URL}/agent`, {
     transports: ['websocket'],
 });
 
-socket.on('connect', () => {
+let metricsTimer = null;
+
+socket.on('connect', async () => {
     console.log(`✅ Agent connected to control plane: ${CONTROL_PLANE_URL}`);
+    // Start sending metrics immediately after connection
+    if (metricsTimer) clearInterval(metricsTimer);
+    metricsTimer = await startMetrics(socket, METRICS_INTERVAL);
 });
 
 socket.on('disconnect', (reason) => {
     console.warn(`⚠️  Agent disconnected: ${reason}`);
+    if (metricsTimer) {
+        clearInterval(metricsTimer);
+        metricsTimer = null;
+    }
 });
 
 socket.on('task', async (task) => {
@@ -52,6 +67,25 @@ socket.on('task', async (task) => {
             case 'ISSUE_SSL':
                 await issueSsl(task, socket);
                 break;
+            case 'FS_LIST':
+            case 'FS_READ':
+            case 'FS_WRITE':
+            case 'FS_DELETE':
+            case 'FS_RENAME':
+            case 'FS_MKDIR':
+            case 'FS_CREATE':
+                await handleFileManager(task, socket);
+                break;
+            case 'SERVICES_LIST':
+            case 'SERVICE_START':
+            case 'SERVICE_STOP':
+            case 'SERVICE_RESTART':
+            case 'SERVICE_STATUS':
+                await handleServices(task, socket);
+                break;
+            case 'EXEC':
+                await handleExec(task, socket);
+                break;
             default:
                 console.warn(`Unknown action: ${task.action}`);
         }
@@ -64,7 +98,9 @@ socket.on('task', async (task) => {
     }
 });
 
+
 process.on('SIGTERM', () => {
+    if (metricsTimer) clearInterval(metricsTimer);
     socket.disconnect();
     process.exit(0);
 });

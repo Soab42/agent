@@ -7,12 +7,14 @@ echo "🚀 Installing Proplay Agent..."
 
 TOKEN=""
 CONTROL_PLANE=""
+GIT_TOKEN=""
 
 # Parse arguments
 while [[ "$#" -gt 0 ]]; do
     case $1 in
         --token) TOKEN="$2"; shift ;;
         --control-plane) CONTROL_PLANE="$2"; shift ;;
+        --git-token) GIT_TOKEN="$2"; shift ;;
         *) echo "Unknown parameter passed: $1"; exit 1 ;;
     esac
     shift
@@ -43,7 +45,11 @@ rm -rf .git * .env .gitignore
 
 # Extract just the agent directory using git sparse-checkout
 git init -q
-git remote add origin https://github.com/Soab42/proplay.git
+if [ -n "$GIT_TOKEN" ]; then
+    git remote add origin "https://$GIT_TOKEN@github.com/Soab42/proplay.git"
+else
+    git remote add origin https://github.com/Soab42/proplay.git
+fi
 git config core.sparseCheckout true
 echo "agent/*" >> .git/info/sparse-checkout
 git pull --depth=1 origin main -q
