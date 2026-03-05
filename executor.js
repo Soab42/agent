@@ -7,6 +7,15 @@ const { generateNginxConfig } = require('./nginx');
 
 const SITES_ROOT = process.env.SITES_ROOT || '/var/www';
 
+function hasCommand(cmd) {
+    try {
+        execSync(`command -v ${cmd} > /dev/null 2>&1`);
+        return true;
+    } catch (e) {
+        return false;
+    }
+}
+
 function log(socket, deployId, siteId, message, stream = 'stdout') {
     console.log(`[${stream}] ${message}`);
     socket.emit('deploy:log', { deployId, siteId, message, stream });
@@ -54,18 +63,15 @@ async function execDeploy(task, socket) {
         await execCmd(`git clone --depth=1 --branch ${branch} ${repo_url} .`, releaseDir, socket, deploy_id, site_id);
 
         // Step 4: Intelligent Install
-        const installCmd = getInstallCmd(releaseDir);
+        const { cmd: installCmd, type: pkgManager } = getInstallCmd(releaseDir);
         log(socket, deploy_id, site_id, `📦 Installing dependencies (${installCmd})...`);
         await execCmd(installCmd, releaseDir, socket, deploy_id, site_id);
 
         // Step 5: Build
-        const defaultBuildCmd = ['NEXTJS', 'NESTJS', 'REACT_SPA'].includes(framework) ? 'npm run build' : null;
+        const defaultBuildCmd = ['NEXTJS', 'NESTJS', 'REACT_SPA'].includes(framework)
+            ? (pkgManager === 'pnpm' ? 'pnpm build' : 'npm run build')
+            : null;
         let effectiveBuild = build_cmd || defaultBuildCmd;
-
-        // If using pnpm, try pnpm build if default was npm
-        if (installCmd.startsWith('pnpm') && effectiveBuild === 'npm run build') {
-            effectiveBuild = 'pnpm build';
-        }
 
         if (effectiveBuild) {
             log(socket, deploy_id, site_id, `🔨 Building (${effectiveBuild})...`);
@@ -102,7 +108,7 @@ async function execDeploy(task, socket) {
 
         // Step 9: PM2 Process Management
         log(socket, deploy_id, site_id, '⚙️  Managing PM2 process...');
-        const startCommand = start_cmd || getDefaultStartCmd(framework, port);
+        const startCommand = start_cmd || getDefaultStartCmd(framework, port, pkgManager);
 
         try {
             await execCmd(`pm2 delete ${site_name}`, currentLink, socket, deploy_id, site_id);
@@ -126,19 +132,31 @@ async function execDeploy(task, socket) {
 }
 
 function getInstallCmd(releaseDir) {
-    if (fs.existsSync(path.join(releaseDir, 'pnpm-lock.yaml'))) return 'pnpm install --frozen-lockfile';
-    if (fs.existsSync(path.join(releaseDir, 'yarn.lock'))) return 'yarn install --frozen-lockfile';
-    if (fs.existsSync(path.join(releaseDir, 'package-lock.json'))) return 'npm ci';
-    return 'npm install';
+    const pnpmExists = hasCommand('pnpm');
+    const yarnExists = hasCommand('yarn');
+
+    if (fs.existsSync(path.join(releaseDir, 'pnpm-lock.yaml')) && pnpmExists) {
+        return { cmd: 'pnpm install --frozen-lockfile', type: 'pnpm' };
+    }
+    if (fs.existsSync(path.join(releaseDir, 'yarn.lock')) && yarnExists) {
+        return { cmd: 'yarn install --frozen-lockfile', type: 'yarn' };
+    }
+    if (fs.existsSync(path.join(releaseDir, 'package-lock.json'))) {
+        return { cmd: 'npm ci', type: 'npm' };
+    }
+
+    // Fallback logic
+    if (pnpmExists) return { cmd: 'pnpm install', type: 'pnpm' };
+    return { cmd: 'npm install', type: 'npm' };
 }
 
-function getDefaultStartCmd(framework, port) {
+function getDefaultStartCmd(framework, port, pkgManager) {
     switch (framework) {
         case 'NEXTJS': return `node node_modules/next/dist/bin/next start -p ${port}`;
         case 'NESTJS': return `node dist/main.js`;
         case 'EXPRESS': return `node dist/server.js`;
         case 'REACT_SPA': return null; // static, no process needed
-        default: return `node index.js`;
+        default: return pkgManager === 'pnpm' ? 'pnpm start' : 'npm start';
     }
 }
 
