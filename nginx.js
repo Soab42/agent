@@ -5,11 +5,12 @@ const path = require('path');
 
 const NGINX_CONF_DIR = process.env.NGINX_CONF_DIR || '/etc/nginx/sites-enabled';
 
-function generateNginxConfig({ site_name, framework, port, domain }) {
+function generateNginxConfig({ site_name, framework, port, domain, base_path }) {
     let config;
 
     if (framework === 'REACT_SPA') {
         // Static file serving with SPA fallback
+        const rootPath = base_path ? path.join(base_path, 'current/dist') : `/var/www/${site_name}/current/dist`;
         config = `server {
     listen 80;
     server_name ${domain || '_'};
@@ -17,7 +18,7 @@ function generateNginxConfig({ site_name, framework, port, domain }) {
     access_log /var/log/nginx/${site_name}.access.log;
     error_log /var/log/nginx/${site_name}.error.log;
 
-    root /var/www/${site_name}/current/dist;
+    root ${rootPath};
     index index.html;
 
     location / {
@@ -53,10 +54,7 @@ function generateNginxConfig({ site_name, framework, port, domain }) {
 `;
     }
 
-    const confPath = path.join(NGINX_CONF_DIR, `${site_name}.conf`);
-    fs.writeFileSync(confPath, config, 'utf8');
-    console.log(`✅ Nginx config written: ${confPath}`);
-    return confPath;
+    return config;
 }
 
 module.exports = { generateNginxConfig };
