@@ -5,11 +5,23 @@ const path = require('path');
 
 const NGINX_CONF_DIR = process.env.NGINX_CONF_DIR || '/etc/nginx/sites-enabled';
 
-function generateNginxConfig({ site_name, framework, port, domain, base_path }) {
+function generateNginxConfig({ site_name, framework, port, domain, base_path, redirects = [] }) {
     let config;
+    let redirectRules = '';
+
+    if (redirects && redirects.length > 0) {
+        redirects.forEach(r => {
+            const typeStr = r.type === 301 ? 'permanent' : 'redirect';
+            // Simple validation: ensure from starts with / or is ^
+            let from = r.from;
+            if (!from.startsWith('/') && !from.startsWith('^') && !from.startsWith('~')) {
+                from = '/' + from;
+            }
+            redirectRules += `    rewrite ${from} ${r.to} ${typeStr};\n`;
+        });
+    }
 
     if (framework === 'REACT_SPA') {
-        // Static file serving with SPA fallback
         const rootPath = base_path ? path.join(base_path, 'current/dist') : `/var/www/${site_name}/current/dist`;
         config = `server {
     listen 80;
@@ -21,6 +33,7 @@ function generateNginxConfig({ site_name, framework, port, domain, base_path }) 
     root ${rootPath};
     index index.html;
 
+${redirectRules}
     location / {
         try_files $uri $uri/ /index.html;
     }
@@ -30,7 +43,6 @@ function generateNginxConfig({ site_name, framework, port, domain, base_path }) 
 }
 `;
     } else {
-        // Reverse proxy for Node apps (Next.js, Express, NestJS)
         config = `server {
     listen 80;
     server_name ${domain || '_'};
@@ -38,6 +50,7 @@ function generateNginxConfig({ site_name, framework, port, domain, base_path }) 
     access_log /var/log/nginx/${site_name}.access.log;
     error_log /var/log/nginx/${site_name}.error.log;
 
+${redirectRules}
     location / {
         proxy_pass http://127.0.0.1:${port};
         proxy_http_version 1.1;

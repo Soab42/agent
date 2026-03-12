@@ -19,6 +19,23 @@ const COMMAND_MAP = {
     'nvm:install':     'curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.39.0/install.sh | bash',
     'ufw:status':      'sudo ufw status verbose',
     'sysinfo':         'uname -a && df -h && free -h && uptime',
+    
+    // Agent management
+    'agent:update':    'cd /opt/proplay-agent && git pull && npm install --production --silent && sudo systemctl restart proplay-agent',
+    'agent:restart':   'sudo systemctl restart proplay-agent',
+    
+    // Database installations
+    'db:mysql:9.0':    'export DEBIAN_FRONTEND=noninteractive && sudo apt-get update && sudo apt-get install -y mysql-server', 
+    'db:mysql:8.4':    'export DEBIAN_FRONTEND=noninteractive && sudo apt-get update && sudo apt-get install -y mysql-server',
+    'db:mysql:8.0':    'export DEBIAN_FRONTEND=noninteractive && sudo apt-get update && sudo apt-get install -y mysql-server',
+    'db:mariadb:11.4': 'export DEBIAN_FRONTEND=noninteractive && sudo apt-get update && sudo apt-get install -y mariadb-server',
+    'db:mariadb:11.2': 'export DEBIAN_FRONTEND=noninteractive && sudo apt-get update && sudo apt-get install -y mariadb-server',
+    'db:mariadb:10.11':'export DEBIAN_FRONTEND=noninteractive && sudo apt-get update && sudo apt-get install -y mariadb-server',
+    'db:postgres:18':  'export DEBIAN_FRONTEND=noninteractive && sudo apt-get update && sudo apt-get install -y postgresql-18',
+    'db:postgres:17':  'export DEBIAN_FRONTEND=noninteractive && sudo apt-get update && sudo apt-get install -y postgresql-17',
+    'db:postgres:16':  'export DEBIAN_FRONTEND=noninteractive && sudo apt-get update && sudo apt-get install -y postgresql-16',
+    'db:postgres:15':  'export DEBIAN_FRONTEND=noninteractive && sudo apt-get update && sudo apt-get install -y postgresql-15',
+    'db:postgres:14':  'export DEBIAN_FRONTEND=noninteractive && sudo apt-get update && sudo apt-get install -y postgresql-14',
 };
 
 async function handleExec(task, socket) {
@@ -36,7 +53,7 @@ async function handleExec(task, socket) {
             cmd = COMMAND_MAP[commandKey];
         } else if (rawCmd) {
             // rawCmd is only accepted for read-only commands
-            const allowed = ['cat ', 'ls ', 'df ', 'free ', 'uptime', 'uname', 'systemctl status '];
+            const allowed = ['cat ', 'ls ', 'df ', 'free ', 'uptime', 'uname', 'systemctl status ', 'pm2 '];
             const isAllowed = allowed.some(prefix => rawCmd.trim().startsWith(prefix));
             if (!isAllowed) {
                 return respond(null, 'Command not allowed. Use a predefined commandKey or a safe read-only command.');

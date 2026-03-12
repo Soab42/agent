@@ -21,7 +21,7 @@ function handleTerminal(task, socket) {
 
         try {
             let ptyProcess;
-            const cwd = process.env.HOME || process.env.USERPROFILE || process.cwd();
+            const cwd = task.payload.cwd || process.env.HOME || process.env.USERPROFILE || process.cwd();
             let useBasicSpawn = !pty;
 
             if (pty) {

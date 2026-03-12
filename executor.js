@@ -168,14 +168,14 @@ async function execDeploy(task, socket) {
             const startCommand = start_cmd || getDefaultStartCmd(framework, port, pkgManager);
             
             try {
-                await execCmd(`pm2 delete ${site_name}`, currentLink, pushLog, socket, deploy_id, site_id);
+                await execCmd(`pm2 delete ${site_id}`, currentLink, pushLog, socket, deploy_id, site_id);
             } catch (e) {
                 // ignore if process doesn't exist
             }
 
             const instancesFlag = pm2Instances === 'max' ? '-i max' : `-i ${pm2Instances}`;
             const argsSuffix = startArgs ? ` -- ${startArgs}` : '';
-            await execCmd(`PORT=${port} pm2 start "${startCommand}" --name ${site_name} ${instancesFlag}${argsSuffix}`, currentLink, pushLog, socket, deploy_id, site_id);
+            await execCmd(`PORT=${port} pm2 start "${startCommand}" --name ${site_id} ${instancesFlag}${argsSuffix}`, currentLink, pushLog, socket, deploy_id, site_id);
             await execCmd(`pm2 save`, currentLink, pushLog, socket, deploy_id, site_id);
         }
 

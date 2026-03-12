@@ -38,16 +38,34 @@ async function handleFileManager(task, socket) {
         switch (action) {
             case 'FS_LIST': {
                 const dir = safePath(payload.path || '/var/www');
+                const isNodeModules = path.basename(dir) === 'node_modules';
+
+                if (isNodeModules) {
+                    const items = [{
+                        name: 'Listing disabled for performance.md',
+                        path: path.join(dir, 'Listing disabled for performance.md'),
+                        isDir: false,
+                        isSymlink: false,
+                        size: 0,
+                        mtime: new Date().toISOString(),
+                        ext: '.md',
+                    }];
+                    respond({ path: dir, items });
+                    break;
+                }
+
                 const entries = fs.readdirSync(dir, { withFileTypes: true });
                 const items = entries.map(e => {
                     const fullPath = path.join(dir, e.name);
                     let size = 0;
                     let mtime = null;
-                    try {
-                        const stat = fs.statSync(fullPath);
-                        size = stat.size;
-                        mtime = stat.mtime.toISOString();
-                    } catch {}
+                    if (e.name !== 'node_modules') {
+                        try {
+                            const stat = fs.statSync(fullPath);
+                            size = stat.size;
+                            mtime = stat.mtime.toISOString();
+                        } catch {}
+                    }
                     return {
                         name: e.name,
                         path: fullPath,

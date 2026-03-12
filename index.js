@@ -12,6 +12,7 @@ const { startMetrics } = require('./metrics');
 const { handleFileManager } = require('./filemanager');
 const { handleServices } = require('./services');
 const { handleExec } = require('./exec');
+const { handleNginxUpdate, handleNginxGet, handleNginxSave } = require('./nginx-manager');
 
 
 const CONTROL_PLANE_URL = process.env.CONTROL_PLANE_URL || 'http://localhost:3001';
@@ -57,6 +58,15 @@ socket.on('task', async (task) => {
                 break;
             case 'ROLLBACK':
                 await rollback(task, socket);
+                break;
+            case 'NGINX_UPDATE':
+                await handleNginxUpdate(task, socket);
+                break;
+            case 'NGINX_GET':
+                await handleNginxGet(task, socket);
+                break;
+            case 'NGINX_SAVE':
+                await handleNginxSave(task, socket);
                 break;
             case 'STREAM_LOGS':
                 streamLogs(task, socket);
