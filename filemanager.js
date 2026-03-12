@@ -19,6 +19,8 @@ function isTextFile(filePath) {
     return false;
 }
 
+const os = require('os');
+
 function safePath(inputPath) {
     // Normalize and prevent going above root weirdly
     const resolved = path.resolve(inputPath || '/');

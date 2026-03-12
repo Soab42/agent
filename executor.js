@@ -21,13 +21,13 @@ function log(socket, deployId, siteId, message, stream = 'stdout') {
     socket.emit('deploy:log', { deployId, siteId, message, stream });
 }
 
-async function execCmd(cmd, cwd, socket, deployId, siteId) {
+async function execCmd(cmd, cwd, pushLog, socket, deployId, siteId) {
     return new Promise((resolve, reject) => {
-        log(socket, deployId, siteId, `$ ${cmd}`);
+        pushLog(`$ ${cmd}`);
         const parts = cmd.split(' ');
         const proc = spawn(parts[0], parts.slice(1), { cwd, shell: true, env: { ...process.env } });
-        proc.stdout.on('data', d => log(socket, deployId, siteId, d.toString().trimEnd(), 'stdout'));
-        proc.stderr.on('data', d => log(socket, deployId, siteId, d.toString().trimEnd(), 'stderr'));
+        proc.stdout.on('data', d => pushLog(d.toString().trimEnd(), 'stdout'));
+        proc.stderr.on('data', d => pushLog(d.toString().trimEnd(), 'stderr'));
         proc.on('close', code => {
             if (code !== 0) reject(new Error(`Command failed with exit code ${code}: ${cmd}`));
             else resolve();
@@ -41,6 +41,14 @@ async function execDeploy(task, socket) {
         site_name, repo_url, branch, framework,
         build_cmd, start_cmd, port, release_id, keep_releases, env, base_path
     } = payload;
+    
+    // Track duration and logs
+    const startTime = Date.now();
+    const deploymentLogs = [];
+    const pushLog = (msg, stream = 'stdout') => {
+        deploymentLogs.push(`[${stream}] ${msg}`);
+        log(socket, deploy_id, site_id, msg, stream);
+    };
 
     const siteRoot = base_path || path.join(SITES_ROOT, site_name);
     const releasesDir = path.join(siteRoot, 'releases');
@@ -50,22 +58,67 @@ async function execDeploy(task, socket) {
 
     try {
         // Step 1: Ensure directories exist
-        log(socket, deploy_id, site_id, '📁 Preparing release directory...');
+        pushLog('📁 Preparing release directory...');
         fs.mkdirSync(releaseDir, { recursive: true });
         fs.mkdirSync(path.join(sharedDir, 'logs'), { recursive: true });
 
-        // Step 2: Write .env to shared
-        const envContent = Object.entries(env || {}).map(([k, v]) => `${k}=${v}`).join('\n');
-        fs.writeFileSync(path.join(sharedDir, '.env'), envContent, { mode: 0o600 });
+        // Step 2: Write .env to shared (only provision it if it doesn't exist)
+        const dotEnvPath = path.join(sharedDir, '.env');
+        if (!fs.existsSync(dotEnvPath)) {
+            const envContent = Object.entries(env || {}).map(([k, v]) => `${k}=${v}`).join('\n');
+            fs.writeFileSync(dotEnvPath, envContent, { mode: 0o600 });
+        }
+        
+        if (payload.deploy_script) {
+            pushLog('🏃 Executing custom deploy script...');
+            const scriptPath = path.join(siteRoot, 'deploy.sh');
+            fs.writeFileSync(scriptPath, payload.deploy_script, { mode: 0o755 });
+            await execCmd('bash deploy.sh', siteRoot, pushLog, socket, deploy_id, site_id);
+            
+            // Re-generate Nginx config just in case
+            pushLog('🌐 Configuring Nginx...');
+            const nginxConfig = generateNginxConfig({
+                site_name,
+                framework,
+                port,
+                domain: payload.domain || site_name,
+                base_path: siteRoot
+            });
+            const tempNginxPath = path.join(siteRoot, `${site_name}.conf`);
+            fs.writeFileSync(tempNginxPath, nginxConfig);
+
+            await execCmd(`sudo mv ${tempNginxPath} /etc/nginx/sites-enabled/${site_name}.conf`, siteRoot, pushLog, socket, deploy_id, site_id);
+            await execCmd('sudo nginx -t && sudo systemctl reload nginx', siteRoot, pushLog, socket, deploy_id, site_id);
+
+            // Get commit metadata if available
+            let commitSha = null, commitAuthor = null, commitMessage = null;
+            try {
+                const gitOutput = execSync('git log -1 --pretty=format:"%H|%an|%s" 2>/dev/null', { cwd: fs.existsSync(releaseDir) ? releaseDir : siteRoot }).toString().trim();
+                const parts = gitOutput.split('|');
+                if (parts.length >= 3) {
+                    commitSha = parts[0];
+                    commitAuthor = parts[1];
+                    commitMessage = parts.slice(2).join('|');
+                } else {
+                    commitSha = execSync('git rev-parse HEAD 2>/dev/null', { cwd: fs.existsSync(releaseDir) ? releaseDir : siteRoot }).toString().trim();
+                }
+            } catch(e) {
+                // Ignore git errors if directory isn't a repo
+            }
+
+            pushLog('✅ Deployment successful!');
+            socket.emit('deploy:status', { siteId: site_id, status: 'SUCCESS', deployId: deploy_id, duration: Math.round((Date.now() - startTime) / 1000), logs: deploymentLogs.join('\n'), commitSha, commitAuthor, commitMessage });
+            return;
+        }
 
         // Step 3: Git clone
-        log(socket, deploy_id, site_id, `🔗 Cloning ${repo_url} (${branch})...`);
-        await execCmd(`git clone --depth=1 --branch ${branch} ${repo_url} .`, releaseDir, socket, deploy_id, site_id);
+        pushLog(`🔗 Cloning ${repo_url} (${branch})...`);
+        await execCmd(`git clone --depth=1 --branch ${branch} ${repo_url} .`, releaseDir, pushLog, socket, deploy_id, site_id);
 
         // Step 4: Intelligent Install
         const { cmd: installCmd, type: pkgManager } = getInstallCmd(releaseDir);
-        log(socket, deploy_id, site_id, `📦 Installing dependencies (${installCmd})...`);
-        await execCmd(installCmd, releaseDir, socket, deploy_id, site_id);
+        pushLog(`📦 Installing dependencies (${installCmd})...`);
+        await execCmd(installCmd, releaseDir, pushLog, socket, deploy_id, site_id);
 
         // Step 5: Build
         const defaultBuildCmd = ['NEXTJS', 'NESTJS', 'REACT_SPA'].includes(framework)
@@ -74,8 +127,8 @@ async function execDeploy(task, socket) {
         let effectiveBuild = build_cmd || defaultBuildCmd;
 
         if (effectiveBuild) {
-            log(socket, deploy_id, site_id, `🔨 Building (${effectiveBuild})...`);
-            await execCmd(effectiveBuild, releaseDir, socket, deploy_id, site_id);
+            pushLog(`🔨 Building (${effectiveBuild})...`);
+            await execCmd(effectiveBuild, releaseDir, pushLog, socket, deploy_id, site_id);
         }
 
         // Step 6: Symlink .env
@@ -85,14 +138,14 @@ async function execDeploy(task, socket) {
         }
 
         // Step 7: Atomic switch of `current` symlink
-        log(socket, deploy_id, site_id, '🔄 Switching current symlink...');
+        pushLog('🔄 Switching current symlink...');
         if (fs.existsSync(currentLink)) {
             fs.unlinkSync(currentLink);
         }
         fs.symlinkSync(releaseDir, currentLink);
 
         // Step 8: Generate and reload Nginx config
-        log(socket, deploy_id, site_id, '🌐 Configuring Nginx...');
+        pushLog('🌐 Configuring Nginx...');
         const nginxConfig = generateNginxConfig({
             site_name,
             framework,
@@ -103,31 +156,60 @@ async function execDeploy(task, socket) {
         const tempNginxPath = path.join(releaseDir, `${site_name}.conf`);
         fs.writeFileSync(tempNginxPath, nginxConfig);
 
-        await execCmd(`sudo mv ${tempNginxPath} /etc/nginx/sites-enabled/${site_name}.conf`, releaseDir, socket, deploy_id, site_id);
-        await execCmd('sudo nginx -t && sudo systemctl reload nginx', releaseDir, socket, deploy_id, site_id);
+        await execCmd(`sudo mv ${tempNginxPath} /etc/nginx/sites-enabled/${site_name}.conf`, releaseDir, pushLog, socket, deploy_id, site_id);
+        await execCmd('sudo nginx -t && sudo systemctl reload nginx', releaseDir, pushLog, socket, deploy_id, site_id);
 
         // Step 9: PM2 Process Management
-        log(socket, deploy_id, site_id, '⚙️  Managing PM2 process...');
+        pushLog('⚙️  Managing PM2 process...');
         const startCommand = start_cmd || getDefaultStartCmd(framework, port, pkgManager);
 
         try {
-            await execCmd(`pm2 delete ${site_name}`, currentLink, socket, deploy_id, site_id);
+            await execCmd(`pm2 delete ${site_name}`, currentLink, pushLog, socket, deploy_id, site_id);
         } catch (e) {
             // ignore if process doesn't exist
         }
 
-        await execCmd(`PORT=${port} pm2 start "${startCommand}" --name ${site_name}`, currentLink, socket, deploy_id, site_id);
-        await execCmd(`pm2 save`, currentLink, socket, deploy_id, site_id);
+        await execCmd(`PORT=${port} pm2 start "${startCommand}" --name ${site_name}`, currentLink, pushLog, socket, deploy_id, site_id);
+        await execCmd(`pm2 save`, currentLink, pushLog, socket, deploy_id, site_id);
 
         // Step 10: Prune old releases
-        pruneReleases(releasesDir, keep_releases || 5, socket, deploy_id, site_id);
+        pruneReleases(releasesDir, keep_releases || 5, pushLog);
+
+        // Get commit metadata if available
+        let commitSha = null, commitAuthor = null, commitMessage = null;
+        try {
+            const gitOutput = execSync('git log -1 --pretty=format:"%H|%an|%s" 2>/dev/null', { cwd: fs.existsSync(releaseDir) ? releaseDir : siteRoot }).toString().trim();
+            const parts = gitOutput.split('|');
+            if (parts.length >= 3) {
+                commitSha = parts[0];
+                commitAuthor = parts[1];
+                commitMessage = parts.slice(2).join('|');
+            } else {
+                commitSha = execSync('git rev-parse HEAD 2>/dev/null', { cwd: fs.existsSync(releaseDir) ? releaseDir : siteRoot }).toString().trim();
+            }
+        } catch(e) {
+            // Ignore git errors if directory isn't a repo
+        }
 
         // Report success
-        log(socket, deploy_id, site_id, '✅ Deployment successful!');
-        socket.emit('deploy:status', { siteId: site_id, status: 'SUCCESS', deployId: deploy_id });
+        pushLog('✅ Deployment successful!');
+        socket.emit('deploy:status', { siteId: site_id, status: 'SUCCESS', deployId: deploy_id, duration: Math.round((Date.now() - startTime) / 1000), logs: deploymentLogs.join('\n'), commitSha, commitAuthor, commitMessage });
     } catch (err) {
-        log(socket, deploy_id, site_id, `❌ Deploy failed: ${err.message}`, 'stderr');
-        socket.emit('deploy:status', { siteId: site_id, status: 'FAILED', deployId: deploy_id });
+        pushLog(`❌ Deploy failed: ${err.message}`, 'stderr');
+        
+        // Attempt to extract commit data even on failure
+        let commitSha = null, commitAuthor = null, commitMessage = null;
+        try {
+            const gitOutput = execSync('git log -1 --pretty=format:"%H|%an|%s" 2>/dev/null', { cwd: fs.existsSync(releaseDir) ? releaseDir : siteRoot }).toString().trim();
+            const parts = gitOutput.split('|');
+            if (parts.length >= 3) {
+                commitSha = parts[0];
+                commitAuthor = parts[1];
+                commitMessage = parts.slice(2).join('|');
+            }
+        } catch(e) {}
+
+        socket.emit('deploy:status', { siteId: site_id, status: 'FAILED', deployId: deploy_id, duration: Math.round((Date.now() - startTime) / 1000), logs: deploymentLogs.join('\n'), failedStep: String(err.message).slice(0, 250), commitSha, commitAuthor, commitMessage });
     }
 }
 
@@ -161,16 +243,16 @@ function getDefaultStartCmd(framework, port, pkgManager) {
 }
 
 
-function pruneReleases(releasesDir, keep, socket, deployId, siteId) {
+function pruneReleases(releasesDir, keep, pushLog) {
     try {
         const releases = fs.readdirSync(releasesDir).sort();
         const toDelete = releases.slice(0, Math.max(0, releases.length - keep));
         for (const rel of toDelete) {
             fs.rmSync(path.join(releasesDir, rel), { recursive: true, force: true });
-            log(socket, deployId, siteId, `🗑️  Pruned old release: ${rel}`);
+            pushLog(`🗑️  Pruned old release: ${rel}`);
         }
     } catch (e) {
-        log(socket, deployId, siteId, `⚠️  Could not prune releases: ${e.message}`, 'stderr');
+        pushLog(`⚠️  Could not prune releases: ${e.message}`, 'stderr');
     }
 }
 
