@@ -39,7 +39,8 @@ async function execDeploy(task, socket) {
     const { deploy_id, site_id, payload } = task;
     const {
         site_name, repo_url, branch, framework,
-        build_cmd, start_cmd, port, release_id, keep_releases, env, base_path
+        build_cmd, start_cmd, port, release_id, keep_releases, env, base_path,
+        startArgs, pm2Restart = true, pm2Instances = '1'
     } = payload;
     
     // Track duration and logs
@@ -93,7 +94,7 @@ async function execDeploy(task, socket) {
             // Get commit metadata if available
             let commitSha = null, commitAuthor = null, commitMessage = null;
             try {
-                const gitOutput = execSync('git log -1 --pretty=format:"%H|%an|%s" 2>/dev/null', { cwd: fs.existsSync(releaseDir) ? releaseDir : siteRoot }).toString().trim();
+                const gitOutput = execSync('git log -1 --pretty=format:\'%H|%an|%s\' 2>/dev/null', { cwd: fs.existsSync(releaseDir) ? releaseDir : siteRoot }).toString().trim();
                 const parts = gitOutput.split('|');
                 if (parts.length >= 3) {
                     commitSha = parts[0];
@@ -161,16 +162,22 @@ async function execDeploy(task, socket) {
 
         // Step 9: PM2 Process Management
         pushLog('⚙️  Managing PM2 process...');
-        const startCommand = start_cmd || getDefaultStartCmd(framework, port, pkgManager);
+        if (!pm2Restart) {
+            pushLog('⏩ Skipping PM2 restart as per settings.');
+        } else {
+            const startCommand = start_cmd || getDefaultStartCmd(framework, port, pkgManager);
+            
+            try {
+                await execCmd(`pm2 delete ${site_name}`, currentLink, pushLog, socket, deploy_id, site_id);
+            } catch (e) {
+                // ignore if process doesn't exist
+            }
 
-        try {
-            await execCmd(`pm2 delete ${site_name}`, currentLink, pushLog, socket, deploy_id, site_id);
-        } catch (e) {
-            // ignore if process doesn't exist
+            const instancesFlag = pm2Instances === 'max' ? '-i max' : `-i ${pm2Instances}`;
+            const argsSuffix = startArgs ? ` -- ${startArgs}` : '';
+            await execCmd(`PORT=${port} pm2 start "${startCommand}" --name ${site_name} ${instancesFlag}${argsSuffix}`, currentLink, pushLog, socket, deploy_id, site_id);
+            await execCmd(`pm2 save`, currentLink, pushLog, socket, deploy_id, site_id);
         }
-
-        await execCmd(`PORT=${port} pm2 start "${startCommand}" --name ${site_name}`, currentLink, pushLog, socket, deploy_id, site_id);
-        await execCmd(`pm2 save`, currentLink, pushLog, socket, deploy_id, site_id);
 
         // Step 10: Prune old releases
         pruneReleases(releasesDir, keep_releases || 5, pushLog);
@@ -178,7 +185,7 @@ async function execDeploy(task, socket) {
         // Get commit metadata if available
         let commitSha = null, commitAuthor = null, commitMessage = null;
         try {
-            const gitOutput = execSync('git log -1 --pretty=format:"%H|%an|%s" 2>/dev/null', { cwd: fs.existsSync(releaseDir) ? releaseDir : siteRoot }).toString().trim();
+            const gitOutput = execSync('git log -1 --pretty=format:\'%H|%an|%s\' 2>/dev/null', { cwd: fs.existsSync(releaseDir) ? releaseDir : siteRoot }).toString().trim();
             const parts = gitOutput.split('|');
             if (parts.length >= 3) {
                 commitSha = parts[0];
@@ -200,7 +207,7 @@ async function execDeploy(task, socket) {
         // Attempt to extract commit data even on failure
         let commitSha = null, commitAuthor = null, commitMessage = null;
         try {
-            const gitOutput = execSync('git log -1 --pretty=format:"%H|%an|%s" 2>/dev/null', { cwd: fs.existsSync(releaseDir) ? releaseDir : siteRoot }).toString().trim();
+            const gitOutput = execSync('git log -1 --pretty=format:\'%H|%an|%s\' 2>/dev/null', { cwd: fs.existsSync(releaseDir) ? releaseDir : siteRoot }).toString().trim();
             const parts = gitOutput.split('|');
             if (parts.length >= 3) {
                 commitSha = parts[0];
