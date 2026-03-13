@@ -13,6 +13,7 @@ const { handleFileManager } = require('./filemanager');
 const { handleServices } = require('./services');
 const { handleExec } = require('./exec');
 const { handleNginxUpdate, handleNginxGet, handleNginxSave } = require('./nginx-manager');
+const { handleSiteDelete } = require('./site-manager');
 
 
 const CONTROL_PLANE_URL = process.env.CONTROL_PLANE_URL || 'http://localhost:3001';
@@ -95,6 +96,9 @@ socket.on('task', async (task) => {
                 break;
             case 'EXEC':
                 await handleExec(task, socket);
+                break;
+            case 'SITE_DELETE':
+                await handleSiteDelete(task, socket);
                 break;
             default:
                 console.warn(`Unknown action: ${task.action}`);

@@ -51,6 +51,9 @@ async function execDeploy(task, socket) {
         log(socket, deploy_id, site_id, msg, stream);
     };
 
+    pushLog(`👤 Running as user: ${require('os').userInfo().username}`);
+    pushLog(`📂 Working directory: ${process.cwd()}`);
+
     const siteRoot = base_path || path.join(SITES_ROOT, site_name);
     const releasesDir = path.join(siteRoot, 'releases');
     const sharedDir = path.join(siteRoot, 'shared');
