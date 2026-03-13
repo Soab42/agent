@@ -5,6 +5,8 @@ const fs = require('fs');
 const path = require('path');
 const { generateNginxConfig } = require('./nginx');
 
+const NGINX_CONF_DIR = process.env.NGINX_CONF_DIR || '/etc/nginx/sites-enabled';
+
 const SITES_ROOT = process.env.SITES_ROOT || '/var/www';
 
 function hasCommand(cmd) {
@@ -140,22 +142,28 @@ async function execDeploy(task, socket) {
             fs.writeFileSync(scriptPath, payload.deploy_script, { mode: 0o755 });
             await execCmd('bash deploy.sh', releaseDir, pushLog, socket, deploy_id, site_id);
             
-            // Re-generate Nginx config just in case
-            pushLog('🌐 Configuring Nginx...');
-            const nginxConfig = generateNginxConfig({
-                site_name,
-                framework,
-                port,
-                domain: payload.domain || site_name,
-                base_path: siteRoot,
-                root_folder: payload.root_folder,
-                ssl_enabled: payload.ssl_enabled
-            });
-            const tempNginxPath = path.join(siteRoot, `${site_name}.conf`);
-            fs.writeFileSync(tempNginxPath, nginxConfig);
+            // Step 8: Generate and reload Nginx config (only if it doesn't exist)
+            pushLog('🌐 Checking Nginx configuration...');
+            const finalNginxPath = path.join(NGINX_CONF_DIR, `${site_name}.conf`);
+            if (fs.existsSync(finalNginxPath)) {
+                pushLog(`⏩ Nginx configuration already exists at ${finalNginxPath}. Skipping overwrite.`);
+            } else {
+                pushLog('✨ Generating new Nginx configuration...');
+                const nginxConfig = generateNginxConfig({
+                    site_name,
+                    framework,
+                    port,
+                    domain: payload.domain || site_name,
+                    base_path: siteRoot,
+                    root_folder: payload.root_folder,
+                    ssl_enabled: payload.ssl_enabled
+                });
+                const tempNginxPath = path.join(siteRoot, `${site_name}.conf`);
+                fs.writeFileSync(tempNginxPath, nginxConfig);
 
-            await execCmd(`sudo mv ${tempNginxPath} /etc/nginx/sites-enabled/${site_name}.conf`, siteRoot, pushLog, socket, deploy_id, site_id);
-            await execCmd('sudo nginx -t && sudo systemctl reload nginx', siteRoot, pushLog, socket, deploy_id, site_id);
+                await execCmd(`sudo mv ${tempNginxPath} ${finalNginxPath}`, siteRoot, pushLog, socket, deploy_id, site_id);
+                await execCmd('sudo nginx -t && sudo systemctl reload nginx', siteRoot, pushLog, socket, deploy_id, site_id);
+            }
 
             // Get commit metadata if available
             let commitSha = null, commitAuthor = null, commitMessage = null;
@@ -216,22 +224,28 @@ async function execDeploy(task, socket) {
 
         const activeProjectDir = payload.root_folder ? path.join(currentLink, payload.root_folder) : currentLink;
 
-        // Step 8: Generate and reload Nginx config
-        pushLog('🌐 Configuring Nginx...');
-        const nginxConfig = generateNginxConfig({
-            site_name,
-            framework,
-            port,
-            domain: payload.domain || site_name,
-            base_path: siteRoot,
-            root_folder: payload.root_folder,
-            ssl_enabled: payload.ssl_enabled
-        });
-        const tempNginxPath = path.join(releaseDir, `${site_name}.conf`);
-        fs.writeFileSync(tempNginxPath, nginxConfig);
+        // Step 8: Generate and reload Nginx config (only if it doesn't exist)
+        pushLog('🌐 Checking Nginx configuration...');
+        const finalNginxPath = path.join(NGINX_CONF_DIR, `${site_name}.conf`);
+        if (fs.existsSync(finalNginxPath)) {
+            pushLog(`⏩ Nginx configuration already exists at ${finalNginxPath}. Skipping overwrite.`);
+        } else {
+            pushLog('✨ Generating new Nginx configuration...');
+            const nginxConfig = generateNginxConfig({
+                site_name,
+                framework,
+                port,
+                domain: payload.domain || site_name,
+                base_path: siteRoot,
+                root_folder: payload.root_folder,
+                ssl_enabled: payload.ssl_enabled
+            });
+            const tempNginxPath = path.join(releaseDir, `${site_name}.conf`);
+            fs.writeFileSync(tempNginxPath, nginxConfig);
 
-        await execCmd(`sudo mv ${tempNginxPath} /etc/nginx/sites-enabled/${site_name}.conf`, releaseDir, pushLog, socket, deploy_id, site_id);
-        await execCmd('sudo nginx -t && sudo systemctl reload nginx', releaseDir, pushLog, socket, deploy_id, site_id);
+            await execCmd(`sudo mv ${tempNginxPath} ${finalNginxPath}`, releaseDir, pushLog, socket, deploy_id, site_id);
+            await execCmd('sudo nginx -t && sudo systemctl reload nginx', releaseDir, pushLog, socket, deploy_id, site_id);
+        }
 
         // Step 9: PM2 Process Management
         pushLog('⚙️  Managing PM2 process...');
