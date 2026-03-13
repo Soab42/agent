@@ -109,12 +109,6 @@ async function execDeploy(task, socket) {
         if (payload.deploy_script) {
             pushLog('🏃 Executing custom deploy script...');
 
-            if (payload.repo_url && !fs.existsSync(path.join(siteRoot, '.git'))) {
-                pushLog(`🔗 Initializing repository: ${payload.repo_url} (${payload.branch})...`);
-                if (!fs.existsSync(siteRoot)) fs.mkdirSync(siteRoot, { recursive: true });
-                await execCmd(`git clone --depth=1 --branch ${payload.branch} ${payload.repo_url} .`, siteRoot, pushLog, socket, deploy_id, site_id);
-            }
-
             const scriptPath = path.join(siteRoot, 'deploy.sh');
             fs.writeFileSync(scriptPath, payload.deploy_script, { mode: 0o755 });
             await execCmd('bash deploy.sh', siteRoot, pushLog, socket, deploy_id, site_id);
