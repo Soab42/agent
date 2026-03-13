@@ -8,6 +8,8 @@ const { promisify } = require('util');
 const execAsync = promisify(exec);
 const NGINX_CONF_DIR = process.env.NGINX_CONF_DIR || '/etc/nginx/sites-enabled';
 
+const { startOrRestartPM2 } = require('./pm2-manager');
+
 /**
  * Clean up all server-side resources for a site.
  */
@@ -76,4 +78,48 @@ async function handleSiteDelete(task, socket) {
     }
 }
 
-module.exports = { handleSiteDelete };
+/**
+ * Restart a site's process using stored configuration.
+ */
+async function handleSiteRestart(task, socket) {
+    const { task_id, site_id, payload } = task;
+    const { site_name, framework, port, start_cmd, start_args, pm2_instances, base_path, root_folder } = payload;
+
+    const pushLog = (msg, stream = 'stdout') => {
+        console.log(`[${stream}] ${msg}`);
+        socket.emit('site:log', { task_id, site_id, message: msg, stream });
+    };
+
+    try {
+        const siteRoot = base_path;
+        const currentLink = path.join(siteRoot, 'current');
+        const projectDir = root_folder ? path.join(currentLink, root_folder) : currentLink;
+
+        if (!fs.existsSync(projectDir)) {
+            throw new Error(`Project directory not found: ${projectDir}. Have you deployed yet?`);
+        }
+
+        await startOrRestartPM2({
+            site_id,
+            site_name,
+            framework,
+            port,
+            start_cmd,
+            start_args,
+            pm2_instances,
+            project_dir: projectDir
+        }, pushLog);
+
+        socket.emit('site:response', { task_id, success: true });
+        console.log(`✅ Site restart completed for ${site_name}`);
+
+    } catch (err) {
+        console.error(`❌ Site restart failed for ${site_name}: ${err.message}`);
+        socket.emit('site:response', { 
+            task_id, 
+            error: err.message 
+        });
+    }
+}
+
+module.exports = { handleSiteDelete, handleSiteRestart };

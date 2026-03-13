@@ -238,18 +238,17 @@ async function execDeploy(task, socket) {
         if (!pm2Restart) {
             pushLog('⏩ Skipping PM2 restart as per settings.');
         } else {
-            const startCommand = start_cmd || getDefaultStartCmd(framework, port, pkgManager);
-            
-            try {
-                await execCmd(`pm2 delete ${site_id}`, activeProjectDir, pushLog, socket, deploy_id, site_id);
-            } catch (e) {
-                // ignore if process doesn't exist
-            }
-
-            const instancesFlag = pm2Instances === 'max' ? '-i max' : `-i ${pm2Instances}`;
-            const argsSuffix = startArgs ? ` -- ${startArgs}` : '';
-            await execCmd(`PORT=${port} pm2 start "${startCommand}" --name ${site_id} ${instancesFlag}${argsSuffix}`, activeProjectDir, pushLog, socket, deploy_id, site_id);
-            await execCmd(`pm2 save`, activeProjectDir, pushLog, socket, deploy_id, site_id);
+            const { startOrRestartPM2 } = require('./pm2-manager');
+            await startOrRestartPM2({
+                site_id,
+                site_name,
+                framework,
+                port,
+                start_cmd: start_cmd,
+                start_args: startArgs,
+                pm2_instances: pm2Instances,
+                project_dir: activeProjectDir
+            }, pushLog);
         }
 
         // Step 10: Prune old releases
