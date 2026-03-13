@@ -136,9 +136,9 @@ async function execDeploy(task, socket) {
                 await execCmd(`git clone --depth=1 --branch ${payload.branch} ${payload.repo_url} .`, releaseDir, pushLog, socket, deploy_id, site_id);
             }
 
-            const scriptPath = path.join(siteRoot, 'deploy.sh');
+            const scriptPath = path.join(releaseDir, 'deploy.sh');
             fs.writeFileSync(scriptPath, payload.deploy_script, { mode: 0o755 });
-            await execCmd('bash deploy.sh', siteRoot, pushLog, socket, deploy_id, site_id);
+            await execCmd('bash deploy.sh', releaseDir, pushLog, socket, deploy_id, site_id);
             
             // Re-generate Nginx config just in case
             pushLog('🌐 Configuring Nginx...');
