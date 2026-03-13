@@ -5,7 +5,7 @@ const path = require('path');
 
 const NGINX_CONF_DIR = process.env.NGINX_CONF_DIR || '/etc/nginx/sites-enabled';
 
-function generateNginxConfig({ site_name, framework, port, domain, base_path, redirects = [] }) {
+function generateNginxConfig({ site_name, framework, port, domain, base_path, root_folder, redirects = [] }) {
     let config;
     let redirectRules = '';
 
@@ -22,7 +22,8 @@ function generateNginxConfig({ site_name, framework, port, domain, base_path, re
     }
 
     if (framework === 'REACT_SPA') {
-        const rootPath = base_path ? path.join(base_path, 'current/dist') : `/var/www/${site_name}/current/dist`;
+        const distFolder = root_folder ? path.join('current', root_folder, 'dist') : 'current/dist';
+        const rootPath = base_path ? path.join(base_path, distFolder) : `/var/www/${site_name}/${distFolder}`;
         config = `server {
     listen 80;
     server_name ${domain || '_'};

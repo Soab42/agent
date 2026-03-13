@@ -15,7 +15,7 @@ async function handleNginxGet(task, socket) {
     
     try {
         if (!fs.existsSync(configPath)) {
-            return socket.emit('nginx:response', { task_id: task.task_id, error: `Nginx config not found for ${site_name}` });
+            return socket.emit('nginx:response', { task_id: task.task_id, error: `Nginx config not found for ${site_name} at expected path: ${configPath}` });
         }
         const content = fs.readFileSync(configPath, 'utf8');
         socket.emit('nginx:response', { task_id: task.task_id, content });

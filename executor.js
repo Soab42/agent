@@ -35,6 +35,39 @@ async function execCmd(cmd, cwd, pushLog, socket, deployId, siteId) {
     });
 }
 
+function forceSymlink(target, linkPath, pushLog) {
+    if (pushLog) pushLog(`🔗 Creating symlink: ${linkPath} -> ${target}`);
+    try {
+        // Aggressive removal: try fs.rmSync first
+        fs.rmSync(linkPath, { recursive: true, force: true });
+        
+        // Double check with lstat and unlink if it still exists (handles some edge cases on networked filesystems)
+        try {
+            if (fs.lstatSync(linkPath).isSymbolicLink()) {
+                fs.unlinkSync(linkPath);
+            }
+        } catch (e) {}
+    } catch (e) {
+        if (pushLog) pushLog(`⚠️ Warning during symlink cleanup: ${e.message}`, 'stderr');
+    }
+    
+    try {
+        fs.symlinkSync(target, linkPath);
+    } catch (err) {
+        if (err.code === 'EEXIST') {
+            if (pushLog) pushLog(`🚨 EEXIST error persisting at ${linkPath}. Attempting shell override...`, 'stderr');
+            try {
+                execSync(`rm -rf "${linkPath}"`);
+                fs.symlinkSync(target, linkPath);
+            } catch (finalErr) {
+                throw new Error(`Failed to create symlink at ${linkPath} even after forced removal: ${finalErr.message}`);
+            }
+        } else {
+            throw err;
+        }
+    }
+}
+
 async function execDeploy(task, socket) {
     const { deploy_id, site_id, payload } = task;
     const {
@@ -75,6 +108,13 @@ async function execDeploy(task, socket) {
         
         if (payload.deploy_script) {
             pushLog('🏃 Executing custom deploy script...');
+
+            if (payload.repo_url && !fs.existsSync(path.join(siteRoot, '.git'))) {
+                pushLog(`🔗 Initializing repository: ${payload.repo_url} (${payload.branch})...`);
+                if (!fs.existsSync(siteRoot)) fs.mkdirSync(siteRoot, { recursive: true });
+                await execCmd(`git clone --depth=1 --branch ${payload.branch} ${payload.repo_url} .`, siteRoot, pushLog, socket, deploy_id, site_id);
+            }
+
             const scriptPath = path.join(siteRoot, 'deploy.sh');
             fs.writeFileSync(scriptPath, payload.deploy_script, { mode: 0o755 });
             await execCmd('bash deploy.sh', siteRoot, pushLog, socket, deploy_id, site_id);
@@ -86,7 +126,8 @@ async function execDeploy(task, socket) {
                 framework,
                 port,
                 domain: payload.domain || site_name,
-                base_path: siteRoot
+                base_path: siteRoot,
+                root_folder: payload.root_folder
             });
             const tempNginxPath = path.join(siteRoot, `${site_name}.conf`);
             fs.writeFileSync(tempNginxPath, nginxConfig);
@@ -119,10 +160,18 @@ async function execDeploy(task, socket) {
         pushLog(`🔗 Cloning ${repo_url} (${branch})...`);
         await execCmd(`git clone --depth=1 --branch ${branch} ${repo_url} .`, releaseDir, pushLog, socket, deploy_id, site_id);
 
+        const projectDir = payload.root_folder ? path.join(releaseDir, payload.root_folder) : releaseDir;
+        if (payload.root_folder) {
+            pushLog(`📂 Project directory set to subfolder: ${payload.root_folder}`);
+            if (!fs.existsSync(projectDir)) {
+                throw new Error(`Root folder "${payload.root_folder}" not found in repository`);
+            }
+        }
+
         // Step 4: Intelligent Install
-        const { cmd: installCmd, type: pkgManager } = getInstallCmd(releaseDir);
+        const { cmd: installCmd, type: pkgManager } = getInstallCmd(projectDir);
         pushLog(`📦 Installing dependencies (${installCmd})...`);
-        await execCmd(installCmd, releaseDir, pushLog, socket, deploy_id, site_id);
+        await execCmd(installCmd, projectDir, pushLog, socket, deploy_id, site_id);
 
         // Step 5: Build
         const defaultBuildCmd = ['NEXTJS', 'NESTJS', 'REACT_SPA'].includes(framework)
@@ -132,21 +181,18 @@ async function execDeploy(task, socket) {
 
         if (effectiveBuild) {
             pushLog(`🔨 Building (${effectiveBuild})...`);
-            await execCmd(effectiveBuild, releaseDir, pushLog, socket, deploy_id, site_id);
+            await execCmd(effectiveBuild, projectDir, pushLog, socket, deploy_id, site_id);
         }
 
         // Step 6: Symlink .env
-        const envLink = path.join(releaseDir, '.env');
-        if (!fs.existsSync(envLink)) {
-            fs.symlinkSync(path.join(sharedDir, '.env'), envLink);
-        }
+        const envLink = path.join(projectDir, '.env');
+        forceSymlink(path.join(sharedDir, '.env'), envLink, pushLog);
 
         // Step 7: Atomic switch of `current` symlink
         pushLog('🔄 Switching current symlink...');
-        if (fs.existsSync(currentLink)) {
-            fs.unlinkSync(currentLink);
-        }
-        fs.symlinkSync(releaseDir, currentLink);
+        forceSymlink(releaseDir, currentLink, pushLog);
+
+        const activeProjectDir = payload.root_folder ? path.join(currentLink, payload.root_folder) : currentLink;
 
         // Step 8: Generate and reload Nginx config
         pushLog('🌐 Configuring Nginx...');
@@ -155,7 +201,8 @@ async function execDeploy(task, socket) {
             framework,
             port,
             domain: payload.domain || site_name,
-            base_path: siteRoot
+            base_path: siteRoot,
+            root_folder: payload.root_folder
         });
         const tempNginxPath = path.join(releaseDir, `${site_name}.conf`);
         fs.writeFileSync(tempNginxPath, nginxConfig);
@@ -171,15 +218,15 @@ async function execDeploy(task, socket) {
             const startCommand = start_cmd || getDefaultStartCmd(framework, port, pkgManager);
             
             try {
-                await execCmd(`pm2 delete ${site_id}`, currentLink, pushLog, socket, deploy_id, site_id);
+                await execCmd(`pm2 delete ${site_id}`, activeProjectDir, pushLog, socket, deploy_id, site_id);
             } catch (e) {
                 // ignore if process doesn't exist
             }
 
             const instancesFlag = pm2Instances === 'max' ? '-i max' : `-i ${pm2Instances}`;
             const argsSuffix = startArgs ? ` -- ${startArgs}` : '';
-            await execCmd(`PORT=${port} pm2 start "${startCommand}" --name ${site_id} ${instancesFlag}${argsSuffix}`, currentLink, pushLog, socket, deploy_id, site_id);
-            await execCmd(`pm2 save`, currentLink, pushLog, socket, deploy_id, site_id);
+            await execCmd(`PORT=${port} pm2 start "${startCommand}" --name ${site_id} ${instancesFlag}${argsSuffix}`, activeProjectDir, pushLog, socket, deploy_id, site_id);
+            await execCmd(`pm2 save`, activeProjectDir, pushLog, socket, deploy_id, site_id);
         }
 
         // Step 10: Prune old releases
@@ -188,14 +235,14 @@ async function execDeploy(task, socket) {
         // Get commit metadata if available
         let commitSha = null, commitAuthor = null, commitMessage = null;
         try {
-            const gitOutput = execSync('git log -1 --pretty=format:\'%H|%an|%s\' 2>/dev/null', { cwd: fs.existsSync(releaseDir) ? releaseDir : siteRoot }).toString().trim();
+            const gitOutput = execSync('git log -1 --pretty=format:\'%H|%an|%s\' 2>/dev/null', { cwd: projectDir }).toString().trim();
             const parts = gitOutput.split('|');
             if (parts.length >= 3) {
                 commitSha = parts[0];
                 commitAuthor = parts[1];
                 commitMessage = parts.slice(2).join('|');
             } else {
-                commitSha = execSync('git rev-parse HEAD 2>/dev/null', { cwd: fs.existsSync(releaseDir) ? releaseDir : siteRoot }).toString().trim();
+                commitSha = execSync('git rev-parse HEAD 2>/dev/null', { cwd: projectDir }).toString().trim();
             }
         } catch(e) {
             // Ignore git errors if directory isn't a repo
