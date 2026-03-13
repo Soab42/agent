@@ -99,6 +99,25 @@ async function execDeploy(task, socket) {
         fs.mkdirSync(releaseDir, { recursive: true });
         fs.mkdirSync(path.join(sharedDir, 'logs'), { recursive: true });
 
+        // If previous releases exist, copy the contents of the latest one
+        // This ensures the custom script starts with the previous state (git, node_modules, etc.)
+        const previousReleases = fs.readdirSync(releasesDir)
+            .filter(f => fs.statSync(path.join(releasesDir, f)).isDirectory() && f !== release_id)
+            .sort()
+            .reverse();
+
+        if (previousReleases.length > 0) {
+            const lastReleaseDir = path.join(releasesDir, previousReleases[0]);
+            pushLog(`📦 Restoring state from previous release: ${previousReleases[0]}...`);
+            try {
+                // Using cp -a to preserve permissions, symlinks, and hidden files (.)
+                execSync(`cp -a ${lastReleaseDir}/. ${releaseDir}/`);
+                pushLog('✅ State restored.');
+            } catch (e) {
+                pushLog(`⚠️ Could not restore state: ${e.message}`, 'stderr');
+            }
+        }
+
         // Step 2: Write .env to shared (only provision it if it doesn't exist)
         const dotEnvPath = path.join(sharedDir, '.env');
         if (!fs.existsSync(dotEnvPath)) {
@@ -108,6 +127,14 @@ async function execDeploy(task, socket) {
         
         if (payload.deploy_script) {
             pushLog('🏃 Executing custom deploy script...');
+
+            // If the folder is empty (e.g. first deploy or copy failed), clone the repo
+            const isEmpty = fs.readdirSync(releaseDir).length === 0;
+            if (isEmpty && payload.repo_url) {
+                pushLog(`🔗 Directory is empty. Initializing repository: ${payload.repo_url} (${payload.branch})...`);
+                if (!fs.existsSync(siteRoot)) fs.mkdirSync(siteRoot, { recursive: true });
+                await execCmd(`git clone --depth=1 --branch ${payload.branch} ${payload.repo_url} .`, releaseDir, pushLog, socket, deploy_id, site_id);
+            }
 
             const scriptPath = path.join(siteRoot, 'deploy.sh');
             fs.writeFileSync(scriptPath, payload.deploy_script, { mode: 0o755 });

@@ -60,8 +60,27 @@ async function handleNginxUpdate(task, socket) {
         const tempPath = path.join('/tmp', `${site_name}.conf`);
         fs.writeFileSync(tempPath, config);
 
-        // Move to Nginx dir and reload
-        await execAsync(`sudo mv ${tempPath} ${NGINX_CONF_DIR}/${site_name}.conf`);
+        // Debian-style robust update: available -> enabled link
+        const availableDir = NGINX_CONF_DIR.replace('sites-enabled', 'sites-available');
+        const availableFile = path.join(availableDir, `${site_name}.conf`);
+        const enabledFile = path.join(NGINX_CONF_DIR, `${site_name}.conf`);
+
+        // 1. Move to sites-available if it exists, otherwise just sites-enabled
+        if (fs.existsSync(availableDir)) {
+            await execAsync(`sudo mv ${tempPath} ${availableFile}`);
+            // 2. Ensure symlink exists in sites-enabled
+            try {
+                // Remove if it's a regular file instead of a link
+                const stat = fs.lstatSync(enabledFile);
+                if (!stat.isSymbolicLink()) {
+                    await execAsync(`sudo rm -f ${enabledFile}`);
+                }
+            } catch (e) {}
+            await execAsync(`sudo ln -sf ${availableFile} ${enabledFile}`);
+        } else {
+            await execAsync(`sudo mv ${tempPath} ${enabledFile}`);
+        }
+
         await execAsync('sudo nginx -t && sudo systemctl reload nginx');
 
         console.log(`✅ Nginx config updated for ${site_name}`);
