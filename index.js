@@ -49,6 +49,10 @@ socket.on('disconnect', (reason) => {
     }
 });
 
+socket.onAny((event, ...args) => {
+    console.log(`📡 Socket Event: ${event}`, JSON.stringify(args));
+});
+
 socket.on('task', async (task) => {
     console.log(`📦 Received task: ${task.action} [${task.task_id}]`);
 

@@ -41,7 +41,7 @@ async function handleNginxSave(task, socket) {
 
 async function handleNginxUpdate(task, socket) {
     const { task_id, site_id, payload } = task;
-    const { site_name, domain, framework, port, base_path, redirects } = payload;
+    const { site_name, domain, framework, port, base_path, root_folder, redirects } = payload;
 
     try {
         const config = generateNginxConfig({
@@ -50,6 +50,8 @@ async function handleNginxUpdate(task, socket) {
             port,
             domain,
             base_path,
+            root_folder,
+            ssl_enabled: task.payload.ssl_enabled,
             redirects
         });
 

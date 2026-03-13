@@ -127,7 +127,8 @@ async function execDeploy(task, socket) {
                 port,
                 domain: payload.domain || site_name,
                 base_path: siteRoot,
-                root_folder: payload.root_folder
+                root_folder: payload.root_folder,
+                ssl_enabled: payload.ssl_enabled
             });
             const tempNginxPath = path.join(siteRoot, `${site_name}.conf`);
             fs.writeFileSync(tempNginxPath, nginxConfig);
@@ -202,7 +203,8 @@ async function execDeploy(task, socket) {
             port,
             domain: payload.domain || site_name,
             base_path: siteRoot,
-            root_folder: payload.root_folder
+            root_folder: payload.root_folder,
+            ssl_enabled: payload.ssl_enabled
         });
         const tempNginxPath = path.join(releaseDir, `${site_name}.conf`);
         fs.writeFileSync(tempNginxPath, nginxConfig);
