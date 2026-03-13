@@ -41,6 +41,7 @@ async function handleNginxSave(task, socket) {
 
 async function handleNginxUpdate(task, socket) {
     const { task_id, site_id, payload } = task;
+    console.log(`🌐 Received NGINX_UPDATE for site: ${payload.site_name}, SSL enabled: ${payload.ssl_enabled}`);
     const { site_name, domain, framework, port, base_path, root_folder, redirects } = payload;
 
     try {
@@ -51,9 +52,10 @@ async function handleNginxUpdate(task, socket) {
             domain,
             base_path,
             root_folder,
-            ssl_enabled: task.payload.ssl_enabled,
+            ssl_enabled: payload.ssl_enabled,
             redirects
         });
+        console.log(`📄 Generated Nginx config (first 100 chars): ${config.substring(0, 100)}...`);
 
         const tempPath = path.join('/tmp', `${site_name}.conf`);
         fs.writeFileSync(tempPath, config);
