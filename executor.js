@@ -142,7 +142,9 @@ async function execDeploy(task, socket) {
                 await execCmd(`git clone --depth=1 --branch ${payload.branch} ${payload.repo_url} .`, releaseDir, pushLog, socket, deploy_id, site_id);
             }
 
-            const scriptPath = path.join(releaseDir, 'deploy.sh');
+            const shellCmd = process.platform === 'win32' ? 'cmd /c deploy.bat' : 'bash deploy.sh';
+            const scriptName = process.platform === 'win32' ? 'deploy.bat' : 'deploy.sh';
+            const scriptPath = path.join(releaseDir, scriptName);
             fs.writeFileSync(scriptPath, payload.deploy_script, { mode: 0o755 });
             
             const deployEnv = {
@@ -155,83 +157,43 @@ async function execDeploy(task, socket) {
                 PROPLAY_DOMAIN: payload.domain || site_name,
             };
 
-            await execCmd('bash deploy.sh', releaseDir, pushLog, socket, deploy_id, site_id, deployEnv);
-            
-            // Step 8: Generate and reload Nginx config (only if it doesn't exist)
-            pushLog('🌐 Checking Nginx configuration...');
-            const finalNginxPath = path.join(NGINX_CONF_DIR, `${site_name}.conf`);
-            if (fs.existsSync(finalNginxPath)) {
-                pushLog(`⏩ Nginx configuration already exists at ${finalNginxPath}. Skipping overwrite.`);
-            } else {
-                pushLog('✨ Generating new Nginx configuration...');
-                const nginxConfig = generateNginxConfig({
-                    site_name,
-                    framework,
-                    port,
-                    domain: payload.domain || site_name,
-                    base_path: siteRoot,
-                    root_folder: payload.root_folder,
-                    ssl_enabled: payload.ssl_enabled
-                });
-                const tempNginxPath = path.join(siteRoot, `${site_name}.conf`);
-                fs.writeFileSync(tempNginxPath, nginxConfig);
+            await execCmd(shellCmd, releaseDir, pushLog, socket, deploy_id, site_id, deployEnv);
+        } else {
+            // Step 3: Git clone
+            pushLog(`🔗 Cloning ${repo_url} (${branch})...`);
+            await execCmd(`git clone --depth=1 --branch ${branch} ${repo_url} .`, releaseDir, pushLog, socket, deploy_id, site_id);
 
-                await execCmd(`sudo mv ${tempNginxPath} ${finalNginxPath}`, siteRoot, pushLog, socket, deploy_id, site_id);
-                await execCmd('sudo nginx -t && sudo systemctl reload nginx', siteRoot, pushLog, socket, deploy_id, site_id);
-            }
-
-            // Get commit metadata if available
-            let commitSha = null, commitAuthor = null, commitMessage = null;
-            try {
-                const gitOutput = execSync('git log -1 --pretty=format:\'%H|%an|%s\' 2>/dev/null', { cwd: fs.existsSync(releaseDir) ? releaseDir : siteRoot }).toString().trim();
-                const parts = gitOutput.split('|');
-                if (parts.length >= 3) {
-                    commitSha = parts[0];
-                    commitAuthor = parts[1];
-                    commitMessage = parts.slice(2).join('|');
-                } else {
-                    commitSha = execSync('git rev-parse HEAD 2>/dev/null', { cwd: fs.existsSync(releaseDir) ? releaseDir : siteRoot }).toString().trim();
+            const projectDir = payload.root_folder ? path.join(releaseDir, payload.root_folder) : releaseDir;
+            if (payload.root_folder) {
+                pushLog(`📂 Project directory set to subfolder: ${payload.root_folder}`);
+                if (!fs.existsSync(projectDir)) {
+                    throw new Error(`Root folder "${payload.root_folder}" not found in repository`);
                 }
-            } catch(e) {
-                // Ignore git errors if directory isn't a repo
             }
 
-            pushLog('✅ Deployment successful!');
-            socket.emit('deploy:status', { siteId: site_id, status: 'SUCCESS', deployId: deploy_id, duration: Math.round((Date.now() - startTime) / 1000), logs: deploymentLogs.join('\n'), commitSha, commitAuthor, commitMessage });
-            return;
-        }
+            // Step 4: Intelligent Install
+            const { cmd: installCmd, type: pkgManager } = getInstallCmd(projectDir);
+            pushLog(`📦 Installing dependencies (${installCmd})...`);
+            await execCmd(installCmd, projectDir, pushLog, socket, deploy_id, site_id);
 
-        // Step 3: Git clone
-        pushLog(`🔗 Cloning ${repo_url} (${branch})...`);
-        await execCmd(`git clone --depth=1 --branch ${branch} ${repo_url} .`, releaseDir, pushLog, socket, deploy_id, site_id);
+            // Step 5: Build
+            const defaultBuildCmd = ['NEXTJS', 'NESTJS', 'REACT_SPA'].includes(framework)
+                ? (pkgManager === 'pnpm' ? 'pnpm build' : 'npm run build')
+                : null;
+            let effectiveBuild = build_cmd || defaultBuildCmd;
 
-        const projectDir = payload.root_folder ? path.join(releaseDir, payload.root_folder) : releaseDir;
-        if (payload.root_folder) {
-            pushLog(`📂 Project directory set to subfolder: ${payload.root_folder}`);
-            if (!fs.existsSync(projectDir)) {
-                throw new Error(`Root folder "${payload.root_folder}" not found in repository`);
+            if (effectiveBuild) {
+                pushLog(`🔨 Building (${effectiveBuild})...`);
+                await execCmd(effectiveBuild, projectDir, pushLog, socket, deploy_id, site_id);
             }
+
+            // Step 6: Symlink .env
+            const envLink = path.join(projectDir, '.env');
+            forceSymlink(path.join(sharedDir, '.env'), envLink, pushLog);
         }
 
-        // Step 4: Intelligent Install
-        const { cmd: installCmd, type: pkgManager } = getInstallCmd(projectDir);
-        pushLog(`📦 Installing dependencies (${installCmd})...`);
-        await execCmd(installCmd, projectDir, pushLog, socket, deploy_id, site_id);
-
-        // Step 5: Build
-        const defaultBuildCmd = ['NEXTJS', 'NESTJS', 'REACT_SPA'].includes(framework)
-            ? (pkgManager === 'pnpm' ? 'pnpm build' : 'npm run build')
-            : null;
-        let effectiveBuild = build_cmd || defaultBuildCmd;
-
-        if (effectiveBuild) {
-            pushLog(`🔨 Building (${effectiveBuild})...`);
-            await execCmd(effectiveBuild, projectDir, pushLog, socket, deploy_id, site_id);
-        }
-
-        // Step 6: Symlink .env
-        const envLink = path.join(projectDir, '.env');
-        forceSymlink(path.join(sharedDir, '.env'), envLink, pushLog);
+        // --- Unified Finalization Flow ---
+        const projectDirForFinal = payload.root_folder ? path.join(releaseDir, payload.root_folder) : releaseDir;
 
         // Step 7: Atomic switch of `current` symlink
         pushLog('🔄 Switching current symlink...');
@@ -286,14 +248,14 @@ async function execDeploy(task, socket) {
         // Get commit metadata if available
         let commitSha = null, commitAuthor = null, commitMessage = null;
         try {
-            const gitOutput = execSync('git log -1 --pretty=format:\'%H|%an|%s\' 2>/dev/null', { cwd: projectDir }).toString().trim();
+            const gitOutput = execSync('git log -1 --pretty=format:\'%H|%an|%s\' 2>/dev/null', { cwd: projectDirForFinal }).toString().trim();
             const parts = gitOutput.split('|');
             if (parts.length >= 3) {
                 commitSha = parts[0];
                 commitAuthor = parts[1];
                 commitMessage = parts.slice(2).join('|');
             } else {
-                commitSha = execSync('git rev-parse HEAD 2>/dev/null', { cwd: projectDir }).toString().trim();
+                commitSha = execSync('git rev-parse HEAD 2>/dev/null', { cwd: projectDirForFinal }).toString().trim();
             }
         } catch(e) {
             // Ignore git errors if directory isn't a repo
