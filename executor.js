@@ -23,11 +23,15 @@ function log(socket, deployId, siteId, message, stream = 'stdout') {
     socket.emit('deploy:log', { deployId, siteId, message, stream });
 }
 
-async function execCmd(cmd, cwd, pushLog, socket, deployId, siteId) {
+async function execCmd(cmd, cwd, pushLog, socket, deployId, siteId, extraEnv = {}) {
     return new Promise((resolve, reject) => {
         pushLog(`$ ${cmd}`);
         const parts = cmd.split(' ');
-        const proc = spawn(parts[0], parts.slice(1), { cwd, shell: true, env: { ...process.env } });
+        const proc = spawn(parts[0], parts.slice(1), { 
+            cwd, 
+            shell: true, 
+            env: { ...process.env, ...extraEnv } 
+        });
         proc.stdout.on('data', d => pushLog(d.toString().trimEnd(), 'stdout'));
         proc.stderr.on('data', d => pushLog(d.toString().trimEnd(), 'stderr'));
         proc.on('close', code => {
@@ -140,7 +144,18 @@ async function execDeploy(task, socket) {
 
             const scriptPath = path.join(releaseDir, 'deploy.sh');
             fs.writeFileSync(scriptPath, payload.deploy_script, { mode: 0o755 });
-            await execCmd('bash deploy.sh', releaseDir, pushLog, socket, deploy_id, site_id);
+            
+            const deployEnv = {
+                PROPLAY_RELEASE_ID: release_id,
+                PROPLAY_RELEASE_DIR: releaseDir,
+                PROPLAY_SITE_ROOT: siteRoot,
+                PROPLAY_SHARED_DIR: sharedDir,
+                PROPLAY_CURRENT_LINK: currentLink,
+                PROPLAY_SITE_NAME: site_name,
+                PROPLAY_DOMAIN: payload.domain || site_name,
+            };
+
+            await execCmd('bash deploy.sh', releaseDir, pushLog, socket, deploy_id, site_id, deployEnv);
             
             // Step 8: Generate and reload Nginx config (only if it doesn't exist)
             pushLog('🌐 Checking Nginx configuration...');
