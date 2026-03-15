@@ -8,6 +8,7 @@ const CREDS_DIR = path.join(os.homedir(), '.proplay');
 const CREDS_FILE = path.join(CREDS_DIR, 'db_credentials.json');
 
 function ensureDir() {
+    console.log(CREDS_DIR, CREDS_FILE);
     if (!fs.existsSync(CREDS_DIR)) {
         fs.mkdirSync(CREDS_DIR, { recursive: true });
     }
@@ -58,25 +59,33 @@ async function handleDbCreds(task, socket) {
 
             case 'DB_CREDS_SAVE': {
                 const creds = loadCreds();
-                const newCred = {
-                    id: payload.id || require('crypto').randomUUID(),
+                const id = payload.id || require('crypto').randomUUID();
+                const existingIndex = creds.findIndex(c => c.id === id);
+
+                const updateData = {
+                    id,
                     dbName: payload.dbName,
                     username: payload.username,
-                    passwordEnc: payload.passwordEnc, // Already encrypted by backend or we encrypt here
                     siteId: payload.siteId,
                     dbInstanceId: payload.dbInstanceId,
-                    createdAt: new Date().toISOString()
                 };
 
-                const index = creds.findIndex(c => c.id === newCred.id);
-                if (index > -1) {
-                    creds[index] = { ...creds[index], ...newCred };
+                if (payload.passwordEnc) {
+                    updateData.passwordEnc = payload.passwordEnc;
+                }
+
+                if (existingIndex > -1) {
+                    creds[existingIndex] = { ...creds[existingIndex], ...updateData };
                 } else {
+                    const newCred = {
+                        ...updateData,
+                        createdAt: new Date().toISOString()
+                    };
                     creds.push(newCred);
                 }
 
                 saveCreds(creds);
-                respond({ id: newCred.id, saved: true });
+                respond({ id, saved: true });
                 break;
             }
 

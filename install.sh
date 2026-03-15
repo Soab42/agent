@@ -8,6 +8,7 @@ echo "🚀 Installing Proplay Agent..."
 TOKEN=""
 CONTROL_PLANE=""
 GIT_TOKEN=""
+ENCRYPTION_KEY=""
 
 # Parse arguments
 while [[ "$#" -gt 0 ]]; do
@@ -15,6 +16,7 @@ while [[ "$#" -gt 0 ]]; do
         --token) TOKEN="$2"; shift ;;
         --control-plane) CONTROL_PLANE="$2"; shift ;;
         --git-token) GIT_TOKEN="$2"; shift ;;
+        --encryption-key) ENCRYPTION_KEY="$2"; shift ;;
         *) echo "Unknown parameter passed: $1"; exit 1 ;;
     esac
     shift
@@ -67,6 +69,7 @@ echo "🔑 Finalizing configuration..."
 cat <<EOF > .env
 CONTROL_PLANE_URL=$CONTROL_PLANE
 AGENT_TOKEN=$TOKEN
+ENCRYPTION_KEY=$ENCRYPTION_KEY
 EOF
 
 # 4. Create Systemd Service

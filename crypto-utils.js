@@ -25,8 +25,15 @@ function encrypt(text) {
 }
 
 function decrypt(encryptedText) {
+    if (!encryptedText) {
+        throw new Error('Encrypted text is missing or undefined.');
+    }
     try {
-        const [ivHex, tagHex, dataHex] = encryptedText.split(':');
+        const parts = encryptedText.split(':');
+        if (parts.length !== 3) {
+            throw new Error('Invalid encrypted text format.');
+        }
+        const [ivHex, tagHex, dataHex] = parts;
         const key = getKey();
         const iv = Buffer.from(ivHex, 'hex');
         const tag = Buffer.from(tagHex, 'hex');
@@ -36,7 +43,7 @@ function decrypt(encryptedText) {
         return decipher.update(data) + decipher.final('utf8');
     } catch (err) {
         console.error('Decryption failed:', err.message);
-        throw new Error('Failed to decrypt data. Check your ENCRYPTION_KEY.');
+        throw new Error('Failed to decrypt data. Check your ENCRYPTION_KEY or data integrity.');
     }
 }
 

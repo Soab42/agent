@@ -30,8 +30,19 @@ async function handleSiteDelete(task, socket) {
             await execAsync('pm2 save');
             results.pm2 = true;
         } catch (e) {
-            // Ignore if process doesn't exist
+            // Ignore if process doesn't exist under old name
             console.warn(`PM2: Could not delete process ${site_id}: ${e.message}`);
+        }
+
+        if (payload.port) {
+            try {
+                const pmName = `${site_name}-${payload.port}`;
+                await execAsync(`pm2 delete ${pmName}`);
+                await execAsync('pm2 save');
+                results.pm2 = true;
+            } catch (e) {
+                // Ignore if process doesn't exist under new name
+            }
         }
 
         // 2. Delete Nginx config
