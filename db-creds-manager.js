@@ -1,0 +1,110 @@
+'use strict';
+const fs = require('fs');
+const path = require('path');
+const os = require('os');
+const { encrypt, decrypt } = require('./crypto-utils'); // I'll need to extract crypto logic
+
+const CREDS_DIR = path.join(os.homedir(), '.proplay');
+const CREDS_FILE = path.join(CREDS_DIR, 'db_credentials.json');
+
+function ensureDir() {
+    if (!fs.existsSync(CREDS_DIR)) {
+        fs.mkdirSync(CREDS_DIR, { recursive: true });
+    }
+}
+
+function loadCreds() {
+    ensureDir();
+    if (!fs.existsSync(CREDS_FILE)) {
+        return [];
+    }
+    try {
+        const content = fs.readFileSync(CREDS_FILE, 'utf8');
+        return JSON.parse(content);
+    } catch (err) {
+        console.error('Failed to load credentials file:', err.message);
+        return [];
+    }
+}
+
+function saveCreds(creds) {
+    ensureDir();
+    fs.writeFileSync(CREDS_FILE, JSON.stringify(creds, null, 2), 'utf8');
+}
+
+async function handleDbCreds(task, socket) {
+    const { task_id, action, payload = {} } = task;
+
+    const respond = (data, error = null) => {
+        socket.emit('db:creds_response', { task_id, action, data, error });
+    };
+
+    try {
+        switch (action) {
+            case 'DB_CREDS_LIST': {
+                const creds = loadCreds();
+                // Strip passwords for listing if needed, but here we just send metadata
+                const list = creds.map(c => ({
+                    id: c.id,
+                    dbName: c.dbName,
+                    username: c.username,
+                    siteId: c.siteId,
+                    dbInstanceId: c.dbInstanceId,
+                    createdAt: c.createdAt
+                }));
+                respond(list);
+                break;
+            }
+
+            case 'DB_CREDS_SAVE': {
+                const creds = loadCreds();
+                const newCred = {
+                    id: payload.id || require('crypto').randomUUID(),
+                    dbName: payload.dbName,
+                    username: payload.username,
+                    passwordEnc: payload.passwordEnc, // Already encrypted by backend or we encrypt here
+                    siteId: payload.siteId,
+                    dbInstanceId: payload.dbInstanceId,
+                    createdAt: new Date().toISOString()
+                };
+
+                const index = creds.findIndex(c => c.id === newCred.id);
+                if (index > -1) {
+                    creds[index] = { ...creds[index], ...newCred };
+                } else {
+                    creds.push(newCred);
+                }
+
+                saveCreds(creds);
+                respond({ id: newCred.id, saved: true });
+                break;
+            }
+
+            case 'DB_CREDS_DELETE': {
+                let creds = loadCreds();
+                creds = creds.filter(c => c.id !== payload.id);
+                saveCreds(creds);
+                respond({ id: payload.id, deleted: true });
+                break;
+            }
+
+            case 'DB_CREDS_GET': {
+                const creds = loadCreds();
+                const cred = creds.find(c => c.id === payload.id);
+                if (!cred) {
+                    respond(null, 'Credential not found');
+                } else {
+                    respond(cred);
+                }
+                break;
+            }
+
+            default:
+                respond(null, `Unknown database credentials action: ${action}`);
+        }
+    } catch (err) {
+        respond(null, err.message);
+    }
+}
+
+module.exports = { handleDbCreds, loadCreds };

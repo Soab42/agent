@@ -14,6 +14,8 @@ const { handleServices } = require('./services');
 const { handleExec } = require('./exec');
 const { handleNginxUpdate, handleNginxGet, handleNginxSave } = require('./nginx-manager');
 const { handleSiteDelete, handleSiteRestart } = require('./site-manager');
+const { handleDbCreds } = require('./db-creds-manager');
+const { handleDbQuery } = require('./db-query');
 
 
 const CONTROL_PLANE_URL = process.env.CONTROL_PLANE_URL || 'http://localhost:3001';
@@ -100,6 +102,15 @@ socket.on('task', async (task) => {
                 break;
             case 'EXEC':
                 await handleExec(task, socket);
+                break;
+            case 'DB_CREDS_LIST':
+            case 'DB_CREDS_SAVE':
+            case 'DB_CREDS_DELETE':
+            case 'DB_CREDS_GET':
+                await handleDbCreds(task, socket);
+                break;
+            case 'DB_QUERY':
+                await handleDbQuery(task, socket);
                 break;
             case 'SITE_DELETE':
                 await handleSiteDelete(task, socket);

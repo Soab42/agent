@@ -10,6 +10,8 @@
   "dependencies": {
     "@homebridge/node-pty-prebuilt-multiarch": "^0.13.1",
     "dotenv": "^16.4.7",
+    "mysql2": "^3.19.1",
+    "pg": "^8.20.0",
     "socket.io-client": "^4.8.3",
     "uuid": "^11.1.0",
     "ws": "^8.18.0"
