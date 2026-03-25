@@ -25,17 +25,17 @@ const COMMAND_MAP = {
     'agent:restart':   'sudo systemctl restart proplay-agent',
     
     // Database installations
-    'db:mysql:9.0':    'export DEBIAN_FRONTEND=noninteractive && sudo apt-get update && sudo apt-get install -y mysql-server', 
-    'db:mysql:8.4':    'export DEBIAN_FRONTEND=noninteractive && sudo apt-get update && sudo apt-get install -y mysql-server',
-    'db:mysql:8.0':    'export DEBIAN_FRONTEND=noninteractive && sudo apt-get update && sudo apt-get install -y mysql-server',
-    'db:mariadb:11.4': 'export DEBIAN_FRONTEND=noninteractive && sudo apt-get update && sudo apt-get install -y mariadb-server',
-    'db:mariadb:11.2': 'export DEBIAN_FRONTEND=noninteractive && sudo apt-get update && sudo apt-get install -y mariadb-server',
-    'db:mariadb:10.11':'export DEBIAN_FRONTEND=noninteractive && sudo apt-get update && sudo apt-get install -y mariadb-server',
-    'db:postgres:18':  'export DEBIAN_FRONTEND=noninteractive && sudo apt-get update && sudo apt-get install -y postgresql-18',
-    'db:postgres:17':  'export DEBIAN_FRONTEND=noninteractive && sudo apt-get update && sudo apt-get install -y postgresql-17',
-    'db:postgres:16':  'export DEBIAN_FRONTEND=noninteractive && sudo apt-get update && sudo apt-get install -y postgresql-16',
-    'db:postgres:15':  'export DEBIAN_FRONTEND=noninteractive && sudo apt-get update && sudo apt-get install -y postgresql-15',
-    'db:postgres:14':  'export DEBIAN_FRONTEND=noninteractive && sudo apt-get update && sudo apt-get install -y postgresql-14',
+    'db:mysql:9.0':    'export DEBIAN_FRONTEND=noninteractive && while sudo fuser /var/lib/dpkg/lock-frontend >/dev/null 2>&1; do sleep 1; done; sudo apt-get update && sudo apt-get install -y mysql-server', 
+    'db:mysql:8.4':    'export DEBIAN_FRONTEND=noninteractive && while sudo fuser /var/lib/dpkg/lock-frontend >/dev/null 2>&1; do sleep 1; done; sudo apt-get update && sudo apt-get install -y mysql-server',
+    'db:mysql:8.0':    'export DEBIAN_FRONTEND=noninteractive && while sudo fuser /var/lib/dpkg/lock-frontend >/dev/null 2>&1; do sleep 1; done; sudo apt-get update && sudo apt-get install -y mysql-server',
+    'db:mariadb:11.4': 'export DEBIAN_FRONTEND=noninteractive && while sudo fuser /var/lib/dpkg/lock-frontend >/dev/null 2>&1; do sleep 1; done; sudo apt-get update && sudo apt-get install -y mariadb-server',
+    'db:mariadb:11.2': 'export DEBIAN_FRONTEND=noninteractive && while sudo fuser /var/lib/dpkg/lock-frontend >/dev/null 2>&1; do sleep 1; done; sudo apt-get update && sudo apt-get install -y mariadb-server',
+    'db:mariadb:10.11':'export DEBIAN_FRONTEND=noninteractive && while sudo fuser /var/lib/dpkg/lock-frontend >/dev/null 2>&1; do sleep 1; done; sudo apt-get update && sudo apt-get install -y mariadb-server',
+    'db:postgres:18':  'export DEBIAN_FRONTEND=noninteractive && while sudo fuser /var/lib/dpkg/lock-frontend >/dev/null 2>&1; do sleep 1; done; sudo apt-get update && sudo apt-get install -y postgresql-18',
+    'db:postgres:17':  'export DEBIAN_FRONTEND=noninteractive && while sudo fuser /var/lib/dpkg/lock-frontend >/dev/null 2>&1; do sleep 1; done; sudo apt-get update && sudo apt-get install -y postgresql-17',
+    'db:postgres:16':  'export DEBIAN_FRONTEND=noninteractive && while sudo fuser /var/lib/dpkg/lock-frontend >/dev/null 2>&1; do sleep 1; done; sudo apt-get update && sudo apt-get install -y postgresql-16',
+    'db:postgres:15':  'export DEBIAN_FRONTEND=noninteractive && while sudo fuser /var/lib/dpkg/lock-frontend >/dev/null 2>&1; do sleep 1; done; sudo apt-get update && sudo apt-get install -y postgresql-15',
+    'db:postgres:14':  'export DEBIAN_FRONTEND=noninteractive && while sudo fuser /var/lib/dpkg/lock-frontend >/dev/null 2>&1; do sleep 1; done; sudo apt-get update && sudo apt-get install -y postgresql-14',
 };
 
 async function handleExec(task, socket) {
@@ -63,7 +63,7 @@ async function handleExec(task, socket) {
             return respond(null, 'No command specified');
         }
 
-        const { stdout, stderr } = await execAsync(cmd, { timeout: 30000 });
+        const { stdout, stderr } = await execAsync(cmd, { timeout: 300000 });
         respond({ stdout: stdout.trim(), stderr: stderr.trim(), cmd, exitCode: 0 });
     } catch (err) {
         respond(null, err.message);
