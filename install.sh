@@ -42,24 +42,15 @@ sudo mkdir -p /opt/proplay-agent
 sudo chown -R $USER:$USER /opt/proplay-agent
 cd /opt/proplay-agent
 
-# Clean up any existing git repo first
+# Clean up any existing content
 rm -rf .git * .env .gitignore
 
-# Extract just the agent directory using git sparse-checkout
-git init -q
+# Clone the standalone agent repository
 if [ -n "$GIT_TOKEN" ]; then
-    git remote add origin "https://$GIT_TOKEN@github.com/Soab42/proplay.git"
+    git clone --depth=1 "https://$GIT_TOKEN@github.com/Soab42/agent.git" .
 else
-    git remote add origin https://github.com/Soab42/proplay.git
+    git clone --depth=1 https://github.com/Soab42/agent.git .
 fi
-git config core.sparseCheckout true
-echo "agent/*" >> .git/info/sparse-checkout
-git pull --depth=1 origin main -q
-
-# Move agent contents to the root of the folder and cleanup
-mv agent/* .
-mv agent/.* . 2>/dev/null || true
-rm -rf agent
 
 echo "📦 Installing Dependencies..."
 npm install --production --silent
