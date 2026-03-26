@@ -31,9 +31,12 @@ else
 fi
 
 # 3. Restart the service
+# We add a small delay and run in background so the agent can send a success 
+# response over the WebSocket BEFORE the service restarts.
 echo "⚙️  Restarting service..."
 if command -v systemctl > /dev/null 2>&1; then
-    sudo systemctl restart proplay-agent
+    (sleep 3 && sudo systemctl restart proplay-agent) &
+    echo "✅ Success! Proplay Agent will restart in 3 seconds to apply updates."
 else
     echo "⚠️  systemctl not found, skipping service restart."
     echo "💡 Please restart the agent manually."
