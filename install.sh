@@ -54,6 +54,7 @@ fi
 
 echo "📦 Installing Dependencies..."
 npm install --production --silent
+chmod +x update.sh
 
 # 3. Create .env file
 echo "🔑 Finalizing configuration..."

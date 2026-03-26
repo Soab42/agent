@@ -21,7 +21,7 @@ const COMMAND_MAP = {
     'sysinfo':         'uname -a && df -h && free -h && uptime',
     
     // Agent management
-    'agent:update':    'cd /opt/proplay-agent && git pull && npm install --production --silent && sudo systemctl restart proplay-agent',
+    'agent:update':    'cd /opt/proplay-agent && ([ -f update.sh ] && bash update.sh || (git pull && npm install --production --silent && sudo systemctl restart proplay-agent))',
     'agent:restart':   'sudo systemctl restart proplay-agent',
     
     // Database installations
