@@ -74,6 +74,26 @@ function forceSymlink(target, linkPath, pushLog) {
     }
 }
 
+/**
+ * Embed a GitHub token into an HTTPS clone URL so git can authenticate
+ * without a TTY prompt. Only modifies github.com HTTPS URLs.
+ * Example: https://github.com/user/repo → https://<token>@github.com/user/repo
+ */
+function buildCloneUrl(repoUrl, githubToken) {
+    if (!githubToken) return repoUrl;
+    try {
+        const url = new URL(repoUrl);
+        if (url.hostname === 'github.com' && url.protocol === 'https:') {
+            url.username = githubToken;
+            url.password = '';
+            return url.toString();
+        }
+    } catch (e) {
+        // Not a valid URL (e.g. SSH), return as-is
+    }
+    return repoUrl;
+}
+
 async function execDeploy(task, socket) {
     const { deploy_id, site_id, payload } = task;
     const {
@@ -139,7 +159,8 @@ async function execDeploy(task, socket) {
             if (isEmpty && payload.repo_url) {
                 pushLog(`🔗 Directory is empty. Initializing repository: ${payload.repo_url} (${payload.branch})...`);
                 if (!fs.existsSync(siteRoot)) fs.mkdirSync(siteRoot, { recursive: true });
-                await execCmd(`git clone --depth=1 --branch ${payload.branch} ${payload.repo_url} .`, releaseDir, pushLog, socket, deploy_id, site_id);
+                const cloneUrl = buildCloneUrl(payload.repo_url, payload.github_token);
+                await execCmd(`git clone --depth=1 --branch ${payload.branch} ${cloneUrl} .`, releaseDir, pushLog, socket, deploy_id, site_id);
             }
 
             const shellCmd = process.platform === 'win32' ? 'cmd /c deploy.bat' : 'bash deploy.sh';
@@ -161,7 +182,8 @@ async function execDeploy(task, socket) {
         } else {
             // Step 3: Git clone
             pushLog(`🔗 Cloning ${repo_url} (${branch})...`);
-            await execCmd(`git clone --depth=1 --branch ${branch} ${repo_url} .`, releaseDir, pushLog, socket, deploy_id, site_id);
+            const cloneUrl = buildCloneUrl(repo_url, payload.github_token);
+            await execCmd(`git clone --depth=1 --branch ${branch} ${cloneUrl} .`, releaseDir, pushLog, socket, deploy_id, site_id);
 
             const projectDir = payload.root_folder ? path.join(releaseDir, payload.root_folder) : releaseDir;
             if (payload.root_folder) {
