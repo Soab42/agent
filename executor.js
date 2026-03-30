@@ -163,6 +163,19 @@ async function execDeploy(task, socket) {
                 await execCmd(`git clone --depth=1 --branch ${payload.branch} ${cloneUrl} .`, releaseDir, pushLog, socket, deploy_id, site_id);
             }
 
+            // Always link shared .env to the release root and project root (if subfolder used)
+            // This ensures environment variables are available during BOTH build and runtime.
+            const projectDir = payload.root_folder ? path.join(releaseDir, payload.root_folder) : releaseDir;
+            
+            // Link to release root
+            forceSymlink(path.join(sharedDir, '.env'), path.join(releaseDir, '.env'), pushLog);
+            
+            // If project is in a subfolder, link it there too
+            if (payload.root_folder && payload.root_folder !== '.') {
+                if (!fs.existsSync(projectDir)) fs.mkdirSync(projectDir, { recursive: true });
+                forceSymlink(path.join(sharedDir, '.env'), path.join(projectDir, '.env'), pushLog);
+            }
+
             const shellCmd = process.platform === 'win32' ? 'cmd /c deploy.bat' : 'bash deploy.sh';
             const scriptName = process.platform === 'win32' ? 'deploy.bat' : 'deploy.sh';
             const scriptPath = path.join(releaseDir, scriptName);
@@ -171,6 +184,7 @@ async function execDeploy(task, socket) {
             const deployEnv = {
                 PROPLAY_RELEASE_ID: release_id,
                 PROPLAY_RELEASE_DIR: releaseDir,
+                PROPLAY_PROJECT_DIR: projectDir, // Added project dir for completeness
                 PROPLAY_SITE_ROOT: siteRoot,
                 PROPLAY_SHARED_DIR: sharedDir,
                 PROPLAY_CURRENT_LINK: currentLink,
@@ -193,6 +207,13 @@ async function execDeploy(task, socket) {
                 }
             }
 
+            // Always link shared .env to the release root and project root
+            // Done BEFORE install/build so variables are available during build time.
+            forceSymlink(path.join(sharedDir, '.env'), path.join(releaseDir, '.env'), pushLog);
+            if (payload.root_folder && payload.root_folder !== '.') {
+                forceSymlink(path.join(sharedDir, '.env'), path.join(projectDir, '.env'), pushLog);
+            }
+
             // Step 4: Intelligent Install
             const { cmd: installCmd, type: pkgManager } = getInstallCmd(projectDir);
             pushLog(`📦 Installing dependencies (${installCmd})...`);
@@ -208,10 +229,6 @@ async function execDeploy(task, socket) {
                 pushLog(`🔨 Building (${effectiveBuild})...`);
                 await execCmd(effectiveBuild, projectDir, pushLog, socket, deploy_id, site_id);
             }
-
-            // Step 6: Symlink .env
-            const envLink = path.join(projectDir, '.env');
-            forceSymlink(path.join(sharedDir, '.env'), envLink, pushLog);
         }
 
         // --- Unified Finalization Flow ---
