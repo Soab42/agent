@@ -142,20 +142,6 @@ async function execDeploy(task, socket) {
             } catch (e) {
                 pushLog(`⚠️ Could not restore state: ${e.message}`, 'stderr');
             }
-
-            // Remove any stale deploy script that was copied from the previous release.
-            // If we leave it, git will see it as an untracked file and refuse to pull/merge.
-            for (const staleScript of ['deploy.sh', 'deploy.bat']) {
-                const staleScriptPath = path.join(releaseDir, staleScript);
-                try {
-                    if (fs.existsSync(staleScriptPath)) {
-                        fs.rmSync(staleScriptPath, { force: true });
-                        pushLog(`🧹 Removed stale script from previous release: ${staleScript}`);
-                    }
-                } catch (e) {
-                    pushLog(`⚠️ Could not remove stale script ${staleScript}: ${e.message}`, 'stderr');
-                }
-            }
         }
 
         // Step 2: Write .env to shared (only provision it if it doesn't exist)
@@ -192,8 +178,16 @@ async function execDeploy(task, socket) {
 
             const shellCmd = process.platform === 'win32' ? 'cmd /c deploy.bat' : 'bash deploy.sh';
             const scriptName = process.platform === 'win32' ? 'deploy.bat' : 'deploy.sh';
-            const scriptPath = path.join(releaseDir, scriptName);
-            fs.writeFileSync(scriptPath, payload.deploy_script, { mode: 0o755 });
+
+            // Write deploy script to shared/ (always update so latest version is used),
+            // then symlink into the release dir — just like .env.
+            // A symlink is never flagged as an untracked file by git.
+            const sharedScriptPath = path.join(sharedDir, scriptName);
+            fs.writeFileSync(sharedScriptPath, payload.deploy_script, { mode: 0o755 });
+            pushLog(`📜 Deploy script written to shared: ${sharedScriptPath}`);
+            forceSymlink(sharedScriptPath, path.join(releaseDir, scriptName), pushLog);
+            pushLog(`🔗 Symlinked ${scriptName} into release dir`);
+
             
             const deployEnv = {
                 PROPLAY_RELEASE_ID: release_id,
