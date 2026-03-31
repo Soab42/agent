@@ -7,6 +7,7 @@ const activeStreams = new Map();
 function streamLogs(task, socket) {
     const { site_id, payload } = task;
     const { site_name, source, domain } = payload; // source: 'app' | 'nginx' | 'pm2'
+    const pm2Name = site_name || site_id; // PM2 processes are registered under site_name
 
     // Kill existing stream for this site and source if any
     const streamKey = `${site_id}:${source}`;
@@ -19,8 +20,8 @@ function streamLogs(task, socket) {
     if (source === 'app') {
         proc = spawn('journalctl', ['-u', `${site_name}.service`, '-f', '-n', '200', '--output=cat'], { shell: false });
     } else if (source === 'pm2') {
-        // PM2 logs for the specific site
-        proc = spawn('pm2', ['logs', site_id, '--lines', '200', '--no-colors'], { shell: true });
+        // PM2 logs for the specific site - use site_name since PM2 processes are named after the site
+        proc = spawn('pm2', ['logs', pm2Name, '--lines', '200', '--no-colors'], { shell: true });
     } else if (source === 'nginx') {
         const logFile = `/var/log/nginx/${domain || site_name}.access.log`;
         proc = spawn('tail', ['-f', '-n', '200', logFile], { shell: false });

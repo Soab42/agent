@@ -23,6 +23,8 @@ const COMMAND_MAP = {
     // Agent management
     'agent:update':    'cd /opt/proplay-agent && ([ -f update.sh ] && bash update.sh || (git pull && npm install --production --silent && sudo systemctl restart proplay-agent))',
     'agent:restart':   'sudo systemctl restart proplay-agent',
+    'agent:destroy':   'pm2 delete proplay-agent 2>/dev/null; sudo systemctl stop proplay-agent 2>/dev/null; sudo systemctl disable proplay-agent 2>/dev/null; echo "Agent destroyed."',
+    'agent:logs':      'pm2 logs proplay-agent --lines 100 --no-colors --nostream 2>/dev/null || journalctl -u proplay-agent -n 100 --no-pager 2>/dev/null || echo "No agent logs found."',
     
     // Database installations
     'db:mysql:9.0':    'export DEBIAN_FRONTEND=noninteractive && while sudo fuser /var/lib/dpkg/lock-frontend >/dev/null 2>&1; do sleep 1; done; sudo apt-get update && sudo apt-get install -y mysql-server', 

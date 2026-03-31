@@ -142,6 +142,20 @@ async function execDeploy(task, socket) {
             } catch (e) {
                 pushLog(`⚠️ Could not restore state: ${e.message}`, 'stderr');
             }
+
+            // Remove any stale deploy script that was copied from the previous release.
+            // If we leave it, git will see it as an untracked file and refuse to pull/merge.
+            for (const staleScript of ['deploy.sh', 'deploy.bat']) {
+                const staleScriptPath = path.join(releaseDir, staleScript);
+                try {
+                    if (fs.existsSync(staleScriptPath)) {
+                        fs.rmSync(staleScriptPath, { force: true });
+                        pushLog(`🧹 Removed stale script from previous release: ${staleScript}`);
+                    }
+                } catch (e) {
+                    pushLog(`⚠️ Could not remove stale script ${staleScript}: ${e.message}`, 'stderr');
+                }
+            }
         }
 
         // Step 2: Write .env to shared (only provision it if it doesn't exist)
