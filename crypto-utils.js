@@ -4,8 +4,9 @@ const crypto = require('crypto');
 const ALGORITHM = 'aes-256-gcm';
 
 function getKey() {
-    const secret = process.env.ENCRYPTION_KEY || '32-char-encryption-key-change-me!!';
-    return crypto.scryptSync(secret, 'salt', 32);
+    const secret = process.env.ENCRYPTION_KEY || '36e26527868f6eb660b55baae7dc431bbe80ee99fd20d167ccc6b47461658c81';
+    const salt = process.env.AGENT_TOKEN || 'proplay-default-salt';
+    return crypto.scryptSync(secret, salt, 32);
 }
 
 function encrypt(text) {
