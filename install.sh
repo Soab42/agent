@@ -66,7 +66,14 @@ EOF
 
 # 4. Create Systemd Service
 echo "⚙️ Registering System Service..."
-sudo bash -c 'cat <<EOF > /etc/systemd/system/proplay-agent.service
+
+# Dynamically resolve Node.js executable and PATH
+NODE_EXEC=$(command -v node)
+if [ -z "$NODE_EXEC" ]; then
+    NODE_EXEC="/usr/bin/node"
+fi
+
+cat <<EOF | sudo tee /etc/systemd/system/proplay-agent.service > /dev/null
 [Unit]
 Description=Proplay Server Agent
 After=network.target
@@ -75,14 +82,14 @@ After=network.target
 Type=simple
 User=root
 WorkingDirectory=/opt/proplay-agent
-ExecStart=/usr/bin/node index.js
+ExecStart=$NODE_EXEC index.js
 Restart=always
-Environment=PATH=/usr/bin:/usr/local/bin
+Environment="PATH=$PATH"
 Environment=NODE_ENV=production
 
 [Install]
 WantedBy=multi-user.target
-EOF'
+EOF
 
 # 5. Start Service
 sudo systemctl daemon-reload
