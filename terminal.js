@@ -1,6 +1,7 @@
 'use strict';
 
 const os = require('os');
+const fs = require('fs');
 const { spawn } = require('child_process');
 
 let pty;
@@ -21,7 +22,13 @@ function handleTerminal(task, socket) {
 
         try {
             let ptyProcess;
-            const cwd = task.payload.cwd || process.env.HOME || process.env.USERPROFILE || process.cwd();
+            let cwd = task.payload.cwd || os.homedir() || process.cwd();
+            
+            // Safety check: if directory doesn't exist, fallback to home
+            if (cwd && !fs.existsSync(cwd)) {
+                console.warn(`⚠️ Requested CWD does not exist: ${cwd}. Falling back to ${os.homedir()}`);
+                cwd = os.homedir();
+            }
             let useBasicSpawn = !pty;
 
             if (pty) {
