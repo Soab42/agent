@@ -4,7 +4,38 @@ const path = require('path');
 const os = require('os');
 const { encrypt, decrypt } = require('./crypto-utils'); // I'll need to extract crypto logic
 
-const CREDS_DIR = path.join(os.homedir(), '.proplay');
+function getProplayDir() {
+    if (process.env.PROPLAY_DIR) return process.env.PROPLAY_DIR;
+    
+    const homeBase = '/home';
+    const pathsToCheck = [];
+
+    // If running as root, check all /home/ subdirectories
+    if (process.getuid && process.getuid() === 0 && fs.existsSync(homeBase)) {
+        try {
+            const users = fs.readdirSync(homeBase);
+            for (const user of users) {
+                pathsToCheck.push(path.join(homeBase, user, '.proplay'));
+            }
+        } catch (err) {
+            console.error('Failed to scan /home for .proplay:', err.message);
+        }
+    }
+
+    // Always include the current user's home fallback
+    pathsToCheck.push(path.join(os.homedir(), '.proplay'));
+
+    for (const p of pathsToCheck) {
+        if (fs.existsSync(p)) {
+            console.log('Using Proplay directory:', p);
+            return p;
+        }
+    }
+
+    return pathsToCheck[pathsToCheck.length - 1]; // Fallback to current user's home
+}
+
+const CREDS_DIR = getProplayDir();
 const CREDS_FILE = path.join(CREDS_DIR, 'db_credentials.json');
 
 function ensureDir() {

@@ -51,9 +51,10 @@ function decrypt(encryptedText) {
     } catch (err) {
         console.error('Decryption failed:', err.message);
         if (err.message.includes('Unsupported state') || err.message.includes('authentication data')) {
-            throw new Error('Failed to decrypt data: Authentication failed. This usually means your AGENT_TOKEN or ENCRYPTION_KEY has changed. Try re-saving the database credentials from the dashboard.');
+            const currentToken = process.env.AGENT_TOKEN ? '(token set)' : '(token missing)';
+            throw new Error(`Decryption failed: Authentication failed. This usually means your AGENT_TOKEN ${currentToken} or ENCRYPTION_KEY does not match what was used during encryption. Re-save your database credentials from the dashboard to refresh.`);
         }
-        throw new Error(`Failed to decrypt data: ${err.message}. Check your ENCRYPTION_KEY or data integrity.`);
+        throw new Error(`Decryption failed: ${err.message}. Check your keys or data integrity.`);
     }
 }
 

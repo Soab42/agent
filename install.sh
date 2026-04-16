@@ -9,6 +9,7 @@ TOKEN=""
 CONTROL_PLANE=""
 GIT_TOKEN=""
 ENCRYPTION_KEY=""
+AGENT_USER="$USER" # Default to current user
 
 # Parse arguments
 while [[ "$#" -gt 0 ]]; do
@@ -17,6 +18,7 @@ while [[ "$#" -gt 0 ]]; do
         --control-plane) CONTROL_PLANE="$2"; shift ;;
         --git-token) GIT_TOKEN="$2"; shift ;;
         --encryption-key) ENCRYPTION_KEY="$2"; shift ;;
+        --user) AGENT_USER="$2"; shift ;;
         *) echo "Unknown parameter passed: $1"; exit 1 ;;
     esac
     shift
@@ -26,6 +28,18 @@ if [ -z "$TOKEN" ] || [ -z "$CONTROL_PLANE" ]; then
     echo "❌ Missing required arguments: --token or --control-plane"
     exit 1
 fi
+
+# Create user if it doesn't exist
+if ! id -u "$AGENT_USER" >/dev/null 2>&1; then
+    echo "👤 Creating user '$AGENT_USER'..."
+    sudo useradd -m -s /bin/bash "$AGENT_USER"
+    sudo usermod -aG sudo "$AGENT_USER"
+fi
+
+# Grant passwordless sudo to this user for all tasks as requested
+echo "🛡️ Configuring full sudo permissions for '$AGENT_USER'..."
+echo "$AGENT_USER ALL=(ALL) NOPASSWD:ALL" | sudo tee /etc/sudoers.d/proplay-$AGENT_USER > /dev/null
+sudo chmod 0440 /etc/sudoers.d/proplay-$AGENT_USER
 
 echo "📦 Setting up environment..."
 
@@ -39,7 +53,7 @@ fi
 # 2. Setup Directory and Download Agent
 echo "📂 Downloading Agent..."
 sudo mkdir -p /opt/proplay-agent
-sudo chown -R $USER:$USER /opt/proplay-agent
+sudo chown -R $AGENT_USER:$AGENT_USER /opt/proplay-agent
 cd /opt/proplay-agent
 
 # Clean up any existing content
@@ -80,7 +94,7 @@ After=network.target
 
 [Service]
 Type=simple
-User=root
+User=$AGENT_USER
 WorkingDirectory=/opt/proplay-agent
 ExecStart=$NODE_EXEC index.js
 Restart=always
