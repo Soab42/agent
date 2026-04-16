@@ -53,7 +53,12 @@ async function handleDbQuery(task, socket) {
             return respond(null, 'Credential not found on this server');
         }
 
-        const password = decrypt(cred.passwordEnc);
+        let password;
+        try {
+            password = decrypt(cred.passwordEnc);
+        } catch (decryptErr) {
+            return respond(null, `Database password decryption failed for credential [${credentialId}]: ${decryptErr.message}`);
+        }
         const { dbName, username } = cred;
         
         // Host and engine are passed in payload because they aren't sensitive but needed for connection

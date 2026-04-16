@@ -41,10 +41,19 @@ function decrypt(encryptedText) {
         const data = Buffer.from(dataHex, 'hex');
         const decipher = crypto.createDecipheriv(ALGORITHM, key, iv);
         decipher.setAuthTag(tag);
-        return decipher.update(data) + decipher.final('utf8');
+        
+        // Use Buffer.concat for robust decoding
+        const decrypted = Buffer.concat([
+            decipher.update(data),
+            decipher.final()
+        ]);
+        return decrypted.toString('utf8');
     } catch (err) {
         console.error('Decryption failed:', err.message);
-        throw new Error('Failed to decrypt data. Check your ENCRYPTION_KEY or data integrity.');
+        if (err.message.includes('Unsupported state') || err.message.includes('authentication data')) {
+            throw new Error('Failed to decrypt data: Authentication failed. This usually means your AGENT_TOKEN or ENCRYPTION_KEY has changed. Try re-saving the database credentials from the dashboard.');
+        }
+        throw new Error(`Failed to decrypt data: ${err.message}. Check your ENCRYPTION_KEY or data integrity.`);
     }
 }
 
